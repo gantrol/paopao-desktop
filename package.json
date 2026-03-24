@@ -1,0 +1,86 @@
+{
+  "name": "paopao-desktop",
+  "private": true,
+  "version": "0.0.1",
+  "description": "泡泡桌面端·Demo",
+  "author": "gantrol",
+  "productName": "PaoPao",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "vite --config vite.config.mjs",
+    "start": "electron .",
+    "build": "vite build --config vite.config.mjs",
+    "pack": "npm run build && electron-builder",
+    "pack:mac": "npm run build && electron-builder --mac dmg zip",
+    "pack:win": "npm run build && electron-builder --win nsis",
+    "pack:dir": "npm run build && electron-builder --dir",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "build": {
+    "appId": "com.paopao.desktop",
+    "productName": "PaoPao",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "electronDist": "./node_modules/electron/dist",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ]
+    }
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.9.0",
+    "@hello-pangea/dnd": "^18.0.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "electron": "40.2.1",
+    "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.2.2",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}
