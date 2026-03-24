@@ -24,6 +24,7 @@ import {
   formatConversationListTime,
   getConversationDividerLabel,
 } from '@/shared/lib/time';
+import { publicIcon } from '@/shared/lib/asset';
 import type {
   DraftState,
   ListViewMode,
@@ -442,12 +443,14 @@ const StreamConversationPane = memo(function StreamConversationPane({
       <div className="nav-bar">
         <div className="nav-left-actions">
           <div className="nav-back-btn" onClick={onBackToList}>
-            <img src="/icons/nav_back.svg" className="nav-icon" alt="back" />
+            <img src={publicIcon('nav_back.svg')} className="nav-icon" alt="back" />
           </div>
         </div>
         <div className="nav-title">{currentChannel?.title || '新泡泡流'}</div>
         <div className="nav-right-actions">
-          <div className="nav-icon" onClick={onOpenCurrentChannelSettings}><img src="/icons/nav_more.svg" alt="more" /></div>
+          <div className="nav-icon" onClick={onOpenCurrentChannelSettings}>
+            <img src={publicIcon('nav_more.svg')} alt="more" />
+          </div>
         </div>
       </div>
 

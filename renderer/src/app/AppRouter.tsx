@@ -554,13 +554,41 @@ export default function AppRouter() {
     scrollPersistTimerRef.current = window.setTimeout(runPersist, 220);
   }, [buildCurrentConversationUiState, currentChannel, persistConversationMeta, threadOrigin]);
 
+
+
   useEffect(() => {
+    const buildInitialTransferAssistantChat = () => {
+      const ts = Date.now();
+
+      return {
+        title: '泡泡传输助手',
+        avatarPreset: DEFAULT_STREAM_AVATAR_PRESET,
+        avatar: DEFAULT_STREAM_AVATAR_PRESET,
+        lastMsg: '来冒个泡吧',
+        messages: [
+          {
+            id: globalThis.crypto.randomUUID(),
+            role: 'ai',
+            type: 'text',
+            content: '来冒个泡吧',
+            time: ts,
+            status: 'success',
+            senderName: '泡泡传输助手',
+            senderAvatarPreset: DEFAULT_STREAM_AVATAR_PRESET,
+            metadata: {
+              senderType: 'system',
+              builtinConversation: 'bubble-transfer-assistant',
+            },
+          },
+        ],
+      };
+    };
     const loadChannels = async () => {
       try {
         if (!bridge) return;
         const list = await listChats();
         if (list.length === 0) {
-          const created = await createChat({ title: '新泡泡流', avatarPreset: DEFAULT_STREAM_AVATAR_PRESET });
+          const created = await createChat(buildInitialTransferAssistantChat());
           const nextChannel = deriveChannelFromRecord(created);
           setChannels([nextChannel]);
           setSelectedChatId(nextChannel.id);

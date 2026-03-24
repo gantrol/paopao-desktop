@@ -8,6 +8,7 @@ import { getMessageAvatarSrc } from '@/shared/lib/avatar';
 import type { MessageData } from '@/entities/message';
 import type { UserProfileRecord } from '@/entities/user';
 import type { DraftState } from './model';
+import { publicIcon } from '@/shared/lib/asset';
 
 interface ThreadPaneProps {
   threadMsgId: string | null;
@@ -258,7 +259,7 @@ export function ThreadPane({
         <div className="thread-header">
           <div className="nav-left-actions">
             <button type="button" className="nav-back-btn thread-back-btn" onClick={onBackToChat} aria-label="返回">
-              <img src="/icons/nav_back.svg" className="nav-icon" alt="back" style={{ width: 20 }} />
+              <img src={publicIcon('nav_back.svg')} className="nav-icon" alt="back" style={{ width: 20 }} />
             </button>
             <div className="thread-header-copy" style={{ marginLeft: 8 }}>
               <span>评论</span>
@@ -322,7 +323,7 @@ export function ThreadPane({
             <div className="thread-header">
               <div className="nav-left-actions">
                 <button type="button" className="nav-back-btn thread-back-btn" onClick={onBackToChat} aria-label="返回">
-                  <img src="/icons/nav_back.svg" className="nav-icon" alt="back" style={{ width: 20 }} />
+                  <img src={publicIcon('nav_back.svg')} className="nav-icon" alt="back" style={{ width: 20 }} />
                 </button>
                 <div className="thread-header-copy" style={{ marginLeft: 8 }}>
                   <span>评论</span>

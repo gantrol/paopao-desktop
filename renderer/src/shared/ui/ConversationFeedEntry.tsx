@@ -6,6 +6,7 @@ import type {
 import { type MessageData } from '@/entities/message';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
 import { formatConversationDividerTime, formatTime } from '@/shared/lib/time';
+import { publicIcon } from '@/shared/lib/asset';
 
 function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(' ');
@@ -91,7 +92,7 @@ export function ConversationFeedEntry({
       <div className={cn('msg-row', message.role === 'me' && 'me', highlighted && 'highlight', !showAvatar && 'msg-row--compact')}>
         {showAvatar ? (
           <div className="avatar">
-            <img src={avatarSrc || '/icons/ai_avatar.svg'} alt="avatar" />
+            <img src={avatarSrc || publicIcon('ai_avatar.svg')} alt="avatar" />
           </div>
         ) : null}
         <div className={cn('bubble-wrapper', !showAvatar && 'bubble-wrapper--full')}>

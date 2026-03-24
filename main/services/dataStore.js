@@ -622,6 +622,8 @@ const DEFAULT_SORTING_BOX_ID_SET = new Set(DEFAULT_SORTING_BOXES.map((box) => bo
 const DEFAULT_SORTING_COLUMNS = INITIAL_SORTING_WORKSPACE.columns;
 const DEFAULT_SORTING_CARDS = INITIAL_SORTING_WORKSPACE.cards;
 
+const DEFAULT_INITIAL_CONVERSATION_ID = 'builtin-conv-bubble-transfer-assistant';
+
 function toSortingEntityId(workspaceId, rawId) {
   return `${workspaceId}:${rawId}`;
 }
@@ -3835,6 +3837,20 @@ class LocalDataStore {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare(`
+        INSERT INTO sorting_workspaces (
+          id, stream_id, title, active_box_id, metadata_json, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        workspaceId,
+        DEFAULT_SORTING_WORKSPACE_STREAM_ID,
+        DEFAULT_SORTING_WORKSPACE_TITLE,
+        toSortingEntityId(workspaceId, DEFAULT_INITIAL_ACTIVE_BOX_RAW_ID),
+        safeJsonStringify(metadata),
+        timestamp,
+        timestamp,
+      );
+      this.db.prepare(`
         INSERT INTO sorting_layers (
           id, workspace_id, box_id, name, kind, system_key, sort_order, created_at, updated_at
         )
@@ -3888,23 +3904,6 @@ class LocalDataStore {
         );
       });
 
-      this.db.prepare(`
-        INSERT INTO sorting_layers (
-          id, workspace_id, box_id, name, kind, system_key, sort_order, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        toSortingEntityId(workspaceId, 'luggage'),
-        workspaceId,
-        null,
-        '行李箱',
-        'system',
-        SORTING_LUGGAGE_COLUMN_KEY,
-        0,
-        timestamp,
-        timestamp,
-      );
-
       DEFAULT_SORTING_CARDS.forEach((card, index) => {
         this.db.prepare(`
           INSERT INTO sorting_cards (
@@ -3919,8 +3918,8 @@ class LocalDataStore {
           card.type,
           card.childBoxId ? toSortingEntityId(workspaceId, card.childBoxId) : null,
           null,
-          null,
-          null,
+          typeof card.title === 'string' ? card.title : null,
+          typeof card.content === 'string' ? card.content : null,
           null,
           safeJsonStringify([]),
           safeJsonStringify(null),
@@ -3944,17 +3943,39 @@ class LocalDataStore {
   }
 
   ensureSortingLuggageColumn(workspaceId) {
-    let column = this.db.prepare(`
-      SELECT id
-      FROM sorting_layers
-      WHERE workspace_id = ? AND system_key = ?
-      LIMIT 1
-    `).get(workspaceId, SORTING_LUGGAGE_COLUMN_KEY);
+    const columnId = toSortingEntityId(workspaceId, INITIAL_LUGGAGE_LAYER_RAW_ID);
 
-    if (column) return column.id;
+    // 先按 system_key 查；再兼容按固定 id 查老数据
+    const existing = this.db.prepare(`
+      SELECT id, system_key AS systemKey
+      FROM sorting_layers
+      WHERE workspace_id = ?
+        AND (system_key = ? OR id = ?)
+      LIMIT 1
+    `).get(workspaceId, SORTING_LUGGAGE_COLUMN_KEY, columnId);
+
+    if (existing) {
+      // 发现老数据但 system_key 不对，原地修复，不再重复插入
+      if (existing.systemKey !== SORTING_LUGGAGE_COLUMN_KEY) {
+        this.db.prepare(`
+          UPDATE sorting_layers
+          SET box_id = NULL,
+              name = ?,
+              kind = 'system',
+              system_key = ?,
+              updated_at = ?
+          WHERE id = ?
+        `).run(
+          INITIAL_LUGGAGE_LAYER_NAME,
+          SORTING_LUGGAGE_COLUMN_KEY,
+          now(),
+          existing.id,
+        );
+      }
+      return existing.id;
+    }
 
     const timestamp = now();
-    const columnId = toSortingEntityId(workspaceId, INITIAL_LUGGAGE_LAYER_RAW_ID);
     this.db.prepare(`
       INSERT INTO sorting_layers (
         id, workspace_id, box_id, name, kind, system_key, sort_order, created_at, updated_at
@@ -4233,15 +4254,37 @@ class LocalDataStore {
 
   ensureSortingWorkspace() {
     let workspace = this.db.prepare(`
-      SELECT id, stream_id AS streamId, title, active_box_id AS activeBoxId, metadata_json AS metadataJson
-      FROM sorting_workspaces
-      WHERE stream_id = ?
-      LIMIT 1
-    `).get(DEFAULT_SORTING_WORKSPACE_STREAM_ID);
+        SELECT id, stream_id AS streamId, title, active_box_id AS activeBoxId, metadata_json AS metadataJson
+        FROM sorting_workspaces
+        WHERE stream_id = ?
+        LIMIT 1
+      `).get(DEFAULT_SORTING_WORKSPACE_STREAM_ID);
 
-    if (!workspace) {
-      workspace = this.createFreshSortingWorkspace(this.getInitialSortingSourceSelection());
-    }
+      const workspaceId = 'sorting_default';
+
+      if (!workspace) {
+        const orphan = this.db.prepare(`
+          SELECT
+            EXISTS(SELECT 1 FROM sorting_layers WHERE workspace_id = ?) AS hasLayers,
+            EXISTS(SELECT 1 FROM sorting_boxes  WHERE workspace_id = ?) AS hasBoxes,
+            EXISTS(SELECT 1 FROM sorting_cards  WHERE workspace_id = ?) AS hasCards
+        `).get(workspaceId, workspaceId, workspaceId);
+
+        if (orphan.hasLayers || orphan.hasBoxes || orphan.hasCards) {
+          this.db.exec('BEGIN IMMEDIATE');
+          try {
+            this.db.prepare(`DELETE FROM sorting_cards WHERE workspace_id = ?`).run(workspaceId);
+            this.db.prepare(`DELETE FROM sorting_layers WHERE workspace_id = ?`).run(workspaceId);
+            this.db.prepare(`DELETE FROM sorting_boxes WHERE workspace_id = ?`).run(workspaceId);
+            this.db.exec('COMMIT');
+          } catch (e) {
+            this.db.exec('ROLLBACK');
+            throw e;
+          }
+        }
+
+        workspace = this.createFreshSortingWorkspace(this.getInitialSortingSourceSelection());
+      }
 
     const metadata = normalizeSortingWorkspaceMetadata(
       safeJsonParse(workspace.metadataJson, null),
@@ -6054,6 +6097,43 @@ class LocalDataStore {
     );
   }
 
+  buildInitialBubbleTransferAssistantConversation() {
+    const timestamp = now();
+
+    return {
+      chatId: DEFAULT_INITIAL_CONVERSATION_ID,
+      title: '泡泡传输助手',
+      avatar: 'bubble',
+      avatarPreset: 'bubble',
+      lastMsg: '来冒个泡吧',
+      lastTime: new Date(timestamp).toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      lastMessageAt: timestamp,
+      metadata: {
+        builtinConversation: 'bubble-transfer-assistant',
+      },
+      messages: [
+        {
+          id: `msg_${crypto.randomUUID()}`,
+          role: 'ai',
+          type: 'text',
+          content: '来冒个泡吧',
+          time: timestamp,
+          status: 'success',
+          senderName: '泡泡传输助手',
+          senderAvatarPreset: 'bubble',
+          metadata: {
+            senderType: 'system',
+            builtinConversation: 'bubble-transfer-assistant',
+            builtinMessage: 'welcome',
+          },
+        },
+      ],
+    };
+  }
+
   seedInitialAppData() {
     const timestamp = now();
 
@@ -6145,6 +6225,14 @@ class LocalDataStore {
         timestamp + INITIAL_AI_PROVIDERS.length + INITIAL_BOTS.length + index,
       );
     });
+    const conversationCountRow = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM conversations
+    `).get();
+
+    if ((conversationCountRow?.count || 0) === 0) {
+      this.createConversation(this.buildInitialBubbleTransferAssistantConversation());
+    }
   }
 
   migrateBuiltInBotModelPresets() {

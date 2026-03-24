@@ -18,7 +18,7 @@
   },
   "build": {
     "appId": "com.paopao.desktop",
-    "productName": "PaoPao",
+    "productName": "泡泡",
     "asar": true,
     "directories": {
       "output": "release"
@@ -43,6 +43,12 @@
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]

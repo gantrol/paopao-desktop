@@ -213,7 +213,7 @@ npm run pack
 2. AI两次重构后，代码都一坨后（App.tsx几万行代码，开发模式下main进程有改动、不会自行刷新），要求参考Electron Vite的框架、Feature-Sliced Design重构；
 3. 要求参考remodex跟pi-mono实现codex调用；
 4. 手工去除了部分冗余文字元素、多余按钮（5次以内）；
-5. 新用户引导也想改的，目前不过没啥精力去调。
+5. 手工编写新用户引导。
 
 ---
 

@@ -9,7 +9,7 @@ import {
   type MutableRefObject,
 } from 'react';
 import { CompoundBubbleIcon } from '@/shared/icons/AvatarIcons';
-
+import { publicIcon } from '@/shared/lib/asset';
 const COMPOSER_MIN_HEIGHT = 24;
 const COMPOSER_MAX_HEIGHT = 160;
 
@@ -139,7 +139,7 @@ export function ConversationComposerBar({
   return (
     <div className={`input-bar ${isExpanded ? 'is-expanded' : 'is-compact'}`}>
       <button type="button" className="icon-btn is-disabled" disabled aria-label="语音输入暂不可用">
-        <img src="/icons/input_voice.svg" alt="voice" />
+        <img src={publicIcon('input_voice.svg')} alt="voice" />
       </button>
       <div className="input-field-shell">
         <textarea
@@ -187,7 +187,7 @@ export function ConversationComposerBar({
           disabled={disabled || plusDisabled || !onPlusClick}
           aria-label="打开更多工具"
         >
-          <img src="/icons/input_plus.svg" alt="plus" />
+          <img src={publicIcon('input_plus.svg')} alt="plus" />
         </button>
       ) : null}
       <button

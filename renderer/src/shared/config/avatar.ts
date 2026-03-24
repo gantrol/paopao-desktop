@@ -1,3 +1,5 @@
+import { publicIcon } from '@/shared/lib/asset';
+
 export const USER_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
   <rect width="96" height="96" rx="24" fill="url(#g)"/>
@@ -18,7 +20,7 @@ export const USER_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(`
   >你</text>
 </svg>
 `)}`;
-export const AI_AVATAR = '/icons/ai_avatar.svg';
+export const AI_AVATAR = publicIcon('ai_avatar.svg');
 export const DEFAULT_STREAM_AVATAR_PRESET = 'bubble';
 
 export type StreamAvatarPreset = {

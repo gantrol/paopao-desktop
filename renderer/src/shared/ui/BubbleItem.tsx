@@ -16,6 +16,7 @@ import {
   MediaUnavailable,
   useInteractiveAssetActions,
 } from '@/shared/ui/media-helpers';
+import { publicIcon } from '@/shared/lib/asset';
 
 function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(' ');
@@ -270,7 +271,7 @@ function BlockRenderer({
             }}
             title={getAttachmentOpenTarget(block.url, block.fileName) ? '单击或双击用系统默认应用打开' : '当前附件不可打开'}
           >
-            <div className="file-icon"><img src="/icons/tool_folder.svg" style={{ width: 32 }} alt="file" /></div>
+            <div className="file-icon"><img src={publicIcon('tool_folder.svg')} style={{ width: 32 }} alt="file" /></div>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">{block.fileName || block.url || '文件'}</div>
               <div className="mt-1 text-xs text-[var(--text-secondary)]">附件</div>
