@@ -9,9 +9,17 @@ const {
   guessMimeFromName,
 } = require('./blobStore');
 const {
-  BUILTIN_AI_PROVIDERS,
-  BUILTIN_BOTS,
-} = require('./botPresets');
+  DEFAULT_IDENTITY_AVATAR_PRESET,
+  INITIAL_IDENTITIES,
+  INITIAL_AI_PROVIDERS,
+  INITIAL_BOTS,
+  INITIAL_SORTING_BOX_TEMPLATE_COLUMNS,
+  INITIAL_ROOT_INBOX_LAYER_RAW_ID,
+  INITIAL_LUGGAGE_LAYER_RAW_ID,
+  INITIAL_LUGGAGE_LAYER_NAME,
+  LEGACY_SORTING_COLUMN_NAME_MIGRATIONS,
+  buildInitialSortingWorkspaceSeed,
+} = require('./initialAppData');
 const {
   extractFirstHttpUrl,
   getLinkHostname,
@@ -570,21 +578,31 @@ function deserializeStoredBlock(row) {
   return null;
 }
 
-const USER_AVATAR = 'https://api.dicebear.com/7.x/avataaars/svg?seed=https://api.dicebear.com/7.x/avataaars/svg?seed=gggg';
+const USER_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="24" fill="url(#g)"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5B8DEF"/>
+      <stop offset="100%" stop-color="#7F56D9"/>
+    </linearGradient>
+  </defs>
+  <text
+    x="48"
+    y="58"
+    text-anchor="middle"
+    font-size="38"
+    font-family="PingFang SC, Microsoft YaHei, Noto Sans CJK SC, Arial, sans-serif"
+    fill="white"
+    font-weight="700"
+  >你</text>
+</svg>
+`)}`;
 const USER_PROFILE_SETTING_KEY = 'user_profile';
 const SECRET_REF_PREFIX = 'secret://';
-const DEFAULT_IDENTITY_AVATAR_PRESET = 'sun';
-const BUILTIN_IDENTITIES = [
-  {
-    id: 'builtin-identity-default-self',
-    name: '默认的我',
-    description: '未特别指定场景时使用的默认身份。',
-    avatarPreset: DEFAULT_IDENTITY_AVATAR_PRESET,
-    enabled: true,
-    sortOrder: 10,
-  },
-];
-const SORTING_LUGGAGE_COLUMN_KEY = 'luggage';
+const BUILTIN_AI_PROVIDERS = INITIAL_AI_PROVIDERS;
+const BUILTIN_BOTS = INITIAL_BOTS;
+const SORTING_LUGGAGE_COLUMN_KEY = INITIAL_LUGGAGE_LAYER_RAW_ID;
 const DEFAULT_SORTING_WORKSPACE_STREAM_ID = '__default__';
 const DEFAULT_SORTING_WORKSPACE_TITLE = '默认工作区';
 const DEFAULT_SORTING_LAYER_NAME = '默认层';
@@ -595,31 +613,14 @@ const DEFAULT_SORTING_SIDEBAR_SECTION_LAYOUT = Object.freeze({
   layers: 1 / 3,
   sources: 1 / 3,
 });
-const SORTING_BOX_TEMPLATE_COLUMNS = ['灵感', '素材', '段落', '疑问'];
-const DEFAULT_SORTING_BOXES = [
-  { id: 'b_root', name: '箱体世界', tone: '#2A8A61', description: '总入口，管理全部子箱与项目脉络。' },
-  { id: 'b_prog', name: '泡泡程序箱', tone: '#266D8A', description: '承接产品、开发、验证与迭代素材。' },
-  { id: 'b_life', name: '生活与哲学', tone: '#A56C2E', description: '沉淀观察、观念与长期思考。' },
-  { id: 'b_aicando_periodical', name: 'AICanDo半月刊', tone: '#7E6AAE', description: '承接 AICanDo 半月刊的主题、素材与写作提纲。' },
-];
+const SORTING_BOX_TEMPLATE_COLUMNS = INITIAL_SORTING_BOX_TEMPLATE_COLUMNS;
+
+const INITIAL_SORTING_WORKSPACE = buildInitialSortingWorkspaceSeed();
+const DEFAULT_INITIAL_ACTIVE_BOX_RAW_ID = INITIAL_SORTING_WORKSPACE.activeBoxId;
+const DEFAULT_SORTING_BOXES = INITIAL_SORTING_WORKSPACE.boxes;
 const DEFAULT_SORTING_BOX_ID_SET = new Set(DEFAULT_SORTING_BOXES.map((box) => box.id));
-const DEFAULT_SORTING_COLUMNS = [
-  { id: 'l_root_inbox', boxId: 'b_root', name: '收件箱' },
-  { id: 'l_prog_inbox', boxId: 'b_prog', name: '待处理' },
-  { id: 'l_prog_mat', boxId: 'b_prog', name: '相关素材' },
-  { id: 'l_life_inbox', boxId: 'b_life', name: '收件箱' },
-  { id: 'l_life_idea', boxId: 'b_life', name: '观念 Ideas' },
-  { id: 'l_aicando_idea', boxId: 'b_aicando_periodical', name: '灵感' },
-  { id: 'l_aicando_source', boxId: 'b_aicando_periodical', name: '素材' },
-  { id: 'l_aicando_paragraph', boxId: 'b_aicando_periodical', name: '段落' },
-  { id: 'l_aicando_question', boxId: 'b_aicando_periodical', name: '疑问' },
-];
-const LEGACY_SORTING_COLUMN_NAME_MIGRATIONS = Object.freeze([]);
-const DEFAULT_SORTING_CARDS = [
-  { id: 'i_b1', layerId: 'l_root_inbox', type: 'box', childBoxId: 'b_prog' },
-  { id: 'i_b2', layerId: 'l_root_inbox', type: 'box', childBoxId: 'b_life' },
-  { id: 'i_b3', layerId: 'l_root_inbox', type: 'box', childBoxId: 'b_aicando_periodical' },
-];
+const DEFAULT_SORTING_COLUMNS = INITIAL_SORTING_WORKSPACE.columns;
+const DEFAULT_SORTING_CARDS = INITIAL_SORTING_WORKSPACE.cards;
 
 function toSortingEntityId(workspaceId, rawId) {
   return `${workspaceId}:${rawId}`;
@@ -1930,9 +1931,7 @@ class LocalDataStore {
     this.importLegacyDataIfNeeded();
     this.migrateSortingWorkspaces();
     this.migrateLegacySortingColumnNames();
-    this.seedBuiltInAiProviders();
-    this.seedBuiltInBots();
-    this.seedBuiltInIdentities();
+    this.seedInitialAppData();
     this.migrateBuiltInBotModelPresets();
     this.migrateAiProviderSecrets();
     this.repairLegacyDirectBotConversations();
@@ -3731,7 +3730,7 @@ class LocalDataStore {
       `).get(requestedParentBoxId, workspaceId)
         ? requestedParentBoxId
         : null;
-      const fallbackRootLayerId = toSortingEntityId(workspaceId, 'l_root_inbox');
+      const fallbackRootLayerId = toSortingEntityId(workspaceId, INITIAL_ROOT_INBOX_LAYER_RAW_ID);
       const targetLayerRow = validParentBoxId
         ? this.db.prepare(`
           SELECT id
@@ -3836,16 +3835,18 @@ class LocalDataStore {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare(`
-        INSERT INTO sorting_workspaces (
-          id, stream_id, title, active_box_id, metadata_json, created_at, updated_at
+        INSERT INTO sorting_layers (
+          id, workspace_id, box_id, name, kind, system_key, sort_order, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
+        toSortingEntityId(workspaceId, INITIAL_LUGGAGE_LAYER_RAW_ID),
         workspaceId,
-        DEFAULT_SORTING_WORKSPACE_STREAM_ID,
-        DEFAULT_SORTING_WORKSPACE_TITLE,
-        toSortingEntityId(workspaceId, 'b_prog'),
-        safeJsonStringify(metadata),
+        null,
+        INITIAL_LUGGAGE_LAYER_NAME,
+        'system',
+        SORTING_LUGGAGE_COLUMN_KEY,
+        0,
         timestamp,
         timestamp,
       );
@@ -3953,7 +3954,7 @@ class LocalDataStore {
     if (column) return column.id;
 
     const timestamp = now();
-    const columnId = toSortingEntityId(workspaceId, 'luggage');
+    const columnId = toSortingEntityId(workspaceId, INITIAL_LUGGAGE_LAYER_RAW_ID);
     this.db.prepare(`
       INSERT INTO sorting_layers (
         id, workspace_id, box_id, name, kind, system_key, sort_order, created_at, updated_at
@@ -3963,7 +3964,7 @@ class LocalDataStore {
       columnId,
       workspaceId,
       null,
-      '行李箱',
+      INITIAL_LUGGAGE_LAYER_NAME,
       'system',
       SORTING_LUGGAGE_COLUMN_KEY,
       0,
@@ -6053,9 +6054,10 @@ class LocalDataStore {
     );
   }
 
-  seedBuiltInAiProviders() {
+  seedInitialAppData() {
     const timestamp = now();
-    BUILTIN_AI_PROVIDERS.forEach((provider, index) => {
+
+    INITIAL_AI_PROVIDERS.forEach((provider, index) => {
       const existing = this.db.prepare(`
         SELECT id
         FROM ai_providers
@@ -6081,11 +6083,8 @@ class LocalDataStore {
         timestamp + index,
       );
     });
-  }
 
-  seedBuiltInBots() {
-    const timestamp = now();
-    BUILTIN_BOTS.forEach((bot, index) => {
+    INITIAL_BOTS.forEach((bot, index) => {
       const existing = this.db.prepare(`
         SELECT id
         FROM bots
@@ -6114,15 +6113,12 @@ class LocalDataStore {
         bot.enabled ? 1 : 0,
         typeof bot.sortOrder === 'number' ? bot.sortOrder : index * 10,
         safeJsonStringify(bot.metadata || null),
-        timestamp + index,
-        timestamp + index,
+        timestamp + INITIAL_AI_PROVIDERS.length + index,
+        timestamp + INITIAL_AI_PROVIDERS.length + index,
       );
     });
-  }
 
-  seedBuiltInIdentities() {
-    const timestamp = now();
-    BUILTIN_IDENTITIES.forEach((identity, index) => {
+    INITIAL_IDENTITIES.forEach((identity, index) => {
       const existing = this.db.prepare(`
         SELECT id
         FROM identities
@@ -6145,8 +6141,8 @@ class LocalDataStore {
         identity.enabled === false ? 0 : 1,
         typeof identity.sortOrder === 'number' ? identity.sortOrder : index * 10,
         safeJsonStringify(identity.metadata || null),
-        timestamp + index,
-        timestamp + index,
+        timestamp + INITIAL_AI_PROVIDERS.length + INITIAL_BOTS.length + index,
+        timestamp + INITIAL_AI_PROVIDERS.length + INITIAL_BOTS.length + index,
       );
     });
   }

@@ -1,4 +1,23 @@
-export const USER_AVATAR = 'https://api.dicebear.com/7.x/avataaars/svg?seed=https://api.dicebear.com/7.x/avataaars/svg?seed=gggg';
+export const USER_AVATAR = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <rect width="96" height="96" rx="24" fill="url(#g)"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5B8DEF"/>
+      <stop offset="100%" stop-color="#7F56D9"/>
+    </linearGradient>
+  </defs>
+  <text
+    x="48"
+    y="58"
+    text-anchor="middle"
+    font-size="38"
+    font-family="PingFang SC, Microsoft YaHei, Noto Sans CJK SC, Arial, sans-serif"
+    fill="white"
+    font-weight="700"
+  >你</text>
+</svg>
+`)}`;
 export const AI_AVATAR = '/icons/ai_avatar.svg';
 export const DEFAULT_STREAM_AVATAR_PRESET = 'bubble';
 
