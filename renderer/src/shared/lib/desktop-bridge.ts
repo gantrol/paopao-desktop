@@ -1,6 +1,4 @@
-import type {
-  AiProviderRecord,
-} from '@/entities/provider';
+import type { AiProviderRecord } from "@/entities/provider";
 import type {
   BotConversationRecord,
   BotRecord,
@@ -8,18 +6,15 @@ import type {
   ConversationBotTriggerResult,
   MachineRunStreamEvent,
   MachineRunTriggerResult,
-} from '@/entities/bot';
-import type {
-  ChatRecord,
-  ChatSummary,
-} from '@/entities/conversation';
-import type { SortingWorkspaceView } from '@/entities/sorting';
-import type { UserProfileRecord } from '@/entities/user';
-import type { ImportedAsset, LinkPreviewMeta } from '@/shared/model';
+} from "@/entities/bot";
+import type { ChatRecord, ChatSummary } from "@/entities/conversation";
+import type { SortingWorkspaceView } from "@/entities/sorting";
+import type { UserProfileRecord } from "@/entities/user";
+import type { ImportedAsset, LinkPreviewMeta } from "@/shared/model";
 
 export interface DesktopBridge {
   environment: {
-    runtime: 'desktop';
+    runtime: "desktop" | "web";
   };
   conversations: {
     list: () => Promise<ChatSummary[]>;
@@ -44,12 +39,14 @@ export interface DesktopBridge {
       size: number;
       buffer: ArrayBuffer;
     }) => Promise<ImportedAsset>;
-    importFiles: (payload: Array<{
-      name: string;
-      type: string;
-      size: number;
-      buffer: ArrayBuffer;
-    }>) => Promise<ImportedAsset[]>;
+    importFiles: (
+      payload: Array<{
+        name: string;
+        type: string;
+        size: number;
+        buffer: ArrayBuffer;
+      }>,
+    ) => Promise<ImportedAsset[]>;
     open: (target: string) => Promise<{ ok: true }>;
   };
   sorting: {
@@ -64,11 +61,21 @@ export interface DesktopBridge {
   ai: {
     refine: (payload: Record<string, unknown>) => Promise<unknown>;
     filter: (payload: Record<string, unknown>) => Promise<unknown>;
-    triggerConversationBots: (payload: Record<string, unknown>) => Promise<ConversationBotTriggerResult>;
-    triggerMachineRun: (payload: Record<string, unknown>) => Promise<MachineRunTriggerResult>;
-    cancelMachineRun: (payload: Record<string, unknown>) => Promise<MachineRunTriggerResult>;
-    onConversationBotStream: (listener: (payload: ConversationBotStreamEvent) => void) => () => void;
-    onMachineRunStream: (listener: (payload: MachineRunStreamEvent) => void) => () => void;
+    triggerConversationBots: (
+      payload: Record<string, unknown>,
+    ) => Promise<ConversationBotTriggerResult>;
+    triggerMachineRun: (
+      payload: Record<string, unknown>,
+    ) => Promise<MachineRunTriggerResult>;
+    cancelMachineRun: (
+      payload: Record<string, unknown>,
+    ) => Promise<MachineRunTriggerResult>;
+    onConversationBotStream: (
+      listener: (payload: ConversationBotStreamEvent) => void,
+    ) => () => void;
+    onMachineRunStream: (
+      listener: (payload: MachineRunStreamEvent) => void,
+    ) => () => void;
   };
   settings: {
     listAiProviders: () => Promise<AiProviderRecord[]>;
@@ -77,14 +84,23 @@ export interface DesktopBridge {
     listBotConversations: (botId: string) => Promise<BotConversationRecord[]>;
     saveBot: (payload: Record<string, unknown>) => Promise<string>;
     getUserProfile: () => Promise<UserProfileRecord>;
-    saveUserProfile: (payload: Record<string, unknown>) => Promise<UserProfileRecord>;
+    saveUserProfile: (
+      payload: Record<string, unknown>,
+    ) => Promise<UserProfileRecord>;
   };
   bots: {
     ensureDirectConversation: (botId: string) => Promise<ChatRecord>;
     saveBinding: (payload: Record<string, unknown>) => Promise<BotRecord[]>;
   };
   system: {
-    getInfo: () => Promise<{ runtime: 'desktop'; dataRoot: string; dbPath: string; cwd: string }>;
+    getInfo: () => Promise<{
+      runtime: "desktop" | "web";
+      dataRoot?: string;
+      dbPath?: string;
+      cwd?: string;
+    }>;
+    exportData: () => Promise<Record<string, unknown>>;
+    importData?: (payload: Record<string, unknown>) => Promise<{ ok: true }>;
   };
 }
 
@@ -95,14 +111,16 @@ declare global {
 }
 
 export function getDesktopBridge(): DesktopBridge | null {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   return window.paopao ?? null;
 }
 
 export function assertDesktopBridge(): DesktopBridge {
   const bridge = getDesktopBridge();
   if (!bridge) {
-    throw new Error('PaoPao desktop bridge is unavailable. Launch the renderer through Electron.');
+    throw new Error(
+      "PaoPao desktop bridge is unavailable. Launch the renderer through Electron.",
+    );
   }
   return bridge;
 }
