@@ -5,6 +5,9 @@
   --nav-bg: #ffffff;
   --tool-bg: #f9f9f9;
   --input-bg: #f0f2f5;
+  --conversation-pane-wash:
+    radial-gradient(circle at 25% 12%, rgba(94, 155, 122, 0.05), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 249, 246, 0.94));
   --text-primary: #1a1a1a;
   --text-secondary: #888888;
   --bubble-me: #e6f2eb;
@@ -90,13 +93,15 @@
   }
 
   .chat-pane {
-    @apply relative min-w-0 flex-1 bg-[var(--bg-color)];
+    @apply relative min-w-0 flex-1;
+    background: var(--conversation-pane-wash);
   }
 
   .thread-pane {
     width: var(--thread-pane-width);
     min-width: var(--thread-pane-width);
-    @apply shrink-0 border-l border-[var(--border-color)] bg-white;
+    @apply shrink-0 border-l border-[var(--border-color)];
+    background: var(--conversation-pane-wash);
   }
 
   .thread-pane--dialog {
@@ -110,11 +115,13 @@
   .thread-dialog-shell {
     width: min(92vw, 760px);
     height: min(86vh, 920px);
-    @apply overflow-hidden rounded-[30px] bg-white shadow-2xl;
+    @apply overflow-hidden rounded-[30px] shadow-2xl;
+    background: var(--conversation-pane-wash);
   }
 
   .thread-window-shell {
-    @apply flex h-[100dvh] w-screen min-h-0 min-w-0 overflow-hidden bg-white;
+    @apply flex h-[100dvh] w-screen min-h-0 min-w-0 overflow-hidden;
+    background: var(--conversation-pane-wash);
   }
 
   .sorting-pane {
@@ -277,8 +284,7 @@
   }
 
   .msg-area {
-    @apply flex-1 overflow-y-auto px-5 py-4;
-    background-image: radial-gradient(circle at 25% 12%, rgba(94, 155, 122, 0.05), transparent 28%);
+    @apply flex-1 overflow-y-auto bg-transparent px-5 py-4;
   }
 
   .time-stamp {
@@ -489,7 +495,7 @@
   }
 
   .quote-input-bar {
-    @apply mb-3 flex items-center gap-3 rounded-2xl border border-black/5 bg-white/75 px-3 py-2;
+    @apply mb-3 flex items-center gap-3 rounded-2xl border border-black/5 bg-transparent px-3 py-2;
   }
 
   .quote-input-thumb {
@@ -548,7 +554,7 @@
   }
 
   .bubble-composer-surface__head {
-    @apply flex items-center justify-between gap-3 rounded-[22px] border border-black/[0.05] bg-white/86 px-4 py-3;
+    @apply flex items-center justify-between gap-3 rounded-[22px] border border-black/[0.05] bg-transparent px-4 py-3;
   }
 
   .bubble-composer-surface__title-wrap {
@@ -588,11 +594,11 @@
   }
 
   .bubble-composer-banner__cancel {
-    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-[var(--text-secondary)] shadow-sm transition hover:text-[var(--text-primary)];
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] shadow-none transition hover:bg-black/[0.04] hover:text-[var(--text-primary)];
   }
 
   .bubble-composer-source {
-    @apply rounded-[20px] border border-black/[0.05] bg-white/88 px-4 py-3;
+    @apply rounded-[20px] border border-black/[0.05] bg-transparent px-4 py-3;
   }
 
   .bubble-composer-source__meta {
@@ -600,7 +606,7 @@
   }
 
   .bubble-composer-source__close {
-    @apply inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--tool-bg)] text-[var(--text-secondary)] shadow-sm transition hover:text-[var(--text-primary)];
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] shadow-none transition hover:bg-black/[0.04] hover:text-[var(--text-primary)];
   }
 
   .bubble-composer-source__body {
@@ -641,7 +647,7 @@
 
   .bubble-composer-block__textarea,
   .bubble-composer-block__input {
-    @apply w-full rounded-[18px] border border-black/[0.06] bg-[var(--tool-bg)] px-3 py-3 text-sm leading-7 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)];
+    @apply w-full rounded-[18px] border border-black/[0.06] bg-transparent px-3 py-3 text-sm leading-7 text-[var(--text-primary)] outline-none transition focus:border-[var(--accent)];
   }
 
   .bubble-composer-block__textarea {
@@ -672,9 +678,9 @@
   }
 
   .bubble-composer-bar {
-    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2 shadow-[0_14px_30px_rgba(23,38,28,0.08),inset_0_1px_0_rgba(255,255,255,0.72)];
-    background: color-mix(in srgb, var(--input-bg) 88%, white);
-    backdrop-filter: blur(14px);
+    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2;
+    background: transparent;
+    box-shadow: 0 14px 30px rgba(23, 38, 28, 0.08);
     min-height: 56px;
   }
 
@@ -707,7 +713,7 @@
   }
 
   .bubble-composer-icon-btn {
-    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[var(--text-secondary)] shadow-sm transition-all duration-200 hover:-translate-y-px hover:text-[var(--text-primary)];
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-transparent text-[var(--text-secondary)] shadow-none transition-all duration-200 hover:-translate-y-px hover:bg-black/[0.04] hover:text-[var(--text-primary)];
   }
 
   .bubble-composer-icon-btn--bubble {
@@ -785,9 +791,9 @@
   }
 
   .input-bar {
-    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2 shadow-[0_14px_30px_rgba(23,38,28,0.08),inset_0_1px_0_rgba(255,255,255,0.72)];
-    background: color-mix(in srgb, var(--input-bg) 88%, white);
-    backdrop-filter: blur(14px);
+    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2;
+    background: transparent;
+    box-shadow: 0 14px 30px rgba(23, 38, 28, 0.08);
     min-height: 56px;
   }
 
@@ -819,7 +825,7 @@
   }
 
   .icon-btn {
-    @apply h-10 w-10 shrink-0 rounded-2xl text-[var(--text-secondary)] hover:bg-white;
+    @apply h-10 w-10 shrink-0 rounded-2xl bg-transparent text-[var(--text-secondary)] hover:bg-black/[0.04];
   }
 
   .icon-btn.is-disabled,
@@ -836,7 +842,7 @@
   }
 
   .icon-btn.send-btn {
-    @apply bg-white text-[var(--text-secondary)] shadow-sm;
+    @apply bg-transparent text-[var(--text-secondary)] shadow-none;
   }
 
   .icon-btn.send-btn.active {
@@ -974,15 +980,72 @@
   }
 
   .nav-back-float {
-    @apply absolute bottom-28 left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-full bg-[#1b1d20] px-4 py-2 text-sm text-white shadow-lg;
+    position: absolute;
+    left: 50%;
+    bottom: calc(92px + var(--safe-area-bottom));
+    z-index: 18;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 0 16px 0 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    background:
+      linear-gradient(180deg, rgba(31, 34, 38, 0.96), rgba(20, 22, 26, 0.92));
+    color: rgba(255, 255, 255, 0.96);
+    box-shadow:
+      0 12px 28px rgba(16, 19, 24, 0.24),
+      0 3px 10px rgba(16, 19, 24, 0.16);
+    backdrop-filter: blur(16px) saturate(135%);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    user-select: none;
+    cursor: pointer;
+    transition:
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      background-color 180ms ease;
   }
 
   .nav-back-float.show {
-    @apply inline-flex;
+    display: inline-flex;
+  }
+
+  .nav-back-float:hover {
+    transform: translateX(-50%) translateY(-1px);
+    box-shadow:
+      0 16px 32px rgba(16, 19, 24, 0.28),
+      0 4px 12px rgba(16, 19, 24, 0.18);
+  }
+
+  .nav-back-float:active {
+    transform: translateX(-50%) scale(0.98);
+  }
+
+  .nav-back-float svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+    display: block;
+    opacity: 0.92;
+  }
+
+  .nav-back-float svg path {
+    fill: currentColor;
+  }
+
+  .nav-back-float span {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
   }
 
   .thread-scroll {
-    @apply flex-1 overflow-y-auto p-4;
+    @apply flex-1 overflow-y-auto bg-transparent p-4;
   }
 
   .bot-management-scroll {
@@ -2548,7 +2611,7 @@
   }
 
   .s-source-composer .bubble-composer-surface {
-    @apply border-black/[0.06] bg-white/84;
+    @apply border-black/[0.06] bg-transparent;
   }
 
   .s-source-composer .bubble-composer-blocks {
