@@ -1,5 +1,6 @@
 import { memo, type MouseEvent } from 'react';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
+import { InitialAvatar } from '@/shared/ui/StreamAvatar';
 import type { MessageData } from '@/entities/message';
 import type { SortingBoxView, SortingCardView } from '@/entities/sorting';
 import { BoxIcon } from '../icons';
@@ -65,6 +66,7 @@ const SortingBubbleNodeInner = ({
   sourceInfo,
   isDragging,
   isDimmed = false,
+  useInitialBoxAvatar = false,
   isEditing,
   editingDraft,
   onDraftChange,
@@ -79,6 +81,7 @@ const SortingBubbleNodeInner = ({
   sourceInfo?: SortingBubbleSourceInfo | null;
   isDragging: boolean;
   isDimmed?: boolean;
+  useInitialBoxAvatar?: boolean;
   enableOverflowCollapse?: boolean;
   isOverflowExpanded?: boolean;
   isEditing: boolean;
@@ -94,6 +97,9 @@ const SortingBubbleNodeInner = ({
   const sourceBadge = formatSortingSourceBadge(sourceInfo);
   const timeLabel = formatDateTime(item.updatedAt || item.createdAt);
   const cardTypeLabel = getSortingCardTypeLabel(item);
+  const targetBox = item.type === 'box'
+    ? boxes.find((box) => box.id === item.childBoxId) || null
+    : null;
 
   if (item.type === 'box') {
     const boxBadgeLabel = isSortingBoxShortcut(item) ? '快捷方式' : '箱子';
@@ -107,11 +113,21 @@ const SortingBubbleNodeInner = ({
           <span className="s-node-card-badge is-muted">{boxBadgeLabel}</span>
         </div>
         <div className="s-node-card-boxline">
-          <div className="s-node-card-icon">
-            <BoxIcon size={16} />
-          </div>
+          {useInitialBoxAvatar ? (
+            <InitialAvatar
+              label={targetBox?.name || '未知箱子'}
+              seed={targetBox?.id || item.childBoxId || item.id}
+              tone={targetBox?.tone}
+              className="s-node-card-icon rounded-xl"
+              textClassName="text-[13px] font-semibold text-white"
+            />
+          ) : (
+            <div className="s-node-card-icon">
+              <BoxIcon size={16} />
+            </div>
+          )}
           <div className="s-node-card-copy">
-            <strong>{boxes.find((box) => box.id === item.childBoxId)?.name || '未知箱子'}</strong>
+            <strong>{targetBox?.name || '未知箱子'}</strong>
             <span>双击进入</span>
           </div>
         </div>

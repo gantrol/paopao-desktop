@@ -97,6 +97,7 @@ export function SortingLuggagePanel({
                             boxes={boxes}
                             sourceInfo={sourceInfoMap[item.id] || null}
                             isDragging={dragSnapshot.isDragging}
+                            useInitialBoxAvatar
                             enableOverflowCollapse
                             isOverflowExpanded={expandedBubbleIds.has(item.id)}
                             isEditing={editingBubbleId === item.id}

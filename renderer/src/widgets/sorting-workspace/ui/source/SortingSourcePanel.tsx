@@ -171,6 +171,12 @@ export function SortingSourcePanel({
   );
   const selectedStreamIdSet = useMemo(() => new Set(selectedStreamIds), [selectedStreamIds]);
   const selectedStreamCount = selectedStreamIds.length;
+  const selectedStreamsOrdered = useMemo(
+    () => selectedStreamIds
+      .map((streamId) => streams.find((stream) => stream.id === streamId) || null)
+      .filter((stream): stream is SortingStream => Boolean(stream)),
+    [selectedStreamIds, streams],
+  );
   const sourceToggleLabel = isCollapsed ? '展开泡泡流面板' : '收起泡泡流面板';
   const collapsedStreamCards = useMemo(() => {
     if (isListView) return streamCards;
@@ -197,6 +203,13 @@ export function SortingSourcePanel({
     () => (currentStream ? `当前聚焦 ${currentStream.title}` : '点击一条流作为当前聚焦'),
     [currentStream],
   );
+  const targetStreams = useMemo(() => {
+    if (!currentStream) return selectedStreamsOrdered;
+    return [
+      currentStream,
+      ...selectedStreamsOrdered.filter((stream) => stream.id !== currentStream.id),
+    ];
+  }, [currentStream, selectedStreamsOrdered]);
   const normalizedComposerDraft = useMemo(
     () => buildComposerDraft(composerDraft.text, composerDraft.items),
     [composerDraft.items, composerDraft.text],
@@ -552,9 +565,32 @@ export function SortingSourcePanel({
       {!isCollapsed && !isListView && currentStream && (
         <div className="s-source-composer">
           {selectedStreamCount > 1 && (
-            <div className="s-source-composer-target">
-              <span>当前发送目标</span>
-              <strong>{currentStream.title}</strong>
+            <div className="s-source-composer-targets">
+              <span className="s-source-composer-targets__label">当前发送目标</span>
+              <div className="s-source-composer-targets__list">
+                {targetStreams.map((stream) => {
+                  const isActive = stream.id === currentStream.id;
+                  return (
+                    <button
+                      key={stream.id}
+                      type="button"
+                      className={cx('s-source-target-pill', isActive && 'is-active')}
+                      onClick={isActive ? undefined : () => onFocusStream(stream.id)}
+                      disabled={isActive}
+                      aria-pressed={isActive}
+                      title={isActive ? `${stream.title}（当前）` : `切换到 ${stream.title}`}
+                    >
+                      <StreamAvatar
+                        title={stream.title}
+                        idOffset={stream.id}
+                        className="s-source-target-pill__avatar"
+                        iconClassName="text-[11px] font-semibold text-white"
+                      />
+                      <span className="s-source-target-pill__text">{stream.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
           <BubbleComposer

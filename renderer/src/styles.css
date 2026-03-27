@@ -16,10 +16,10 @@
   --safe-area-bottom: env(safe-area-inset-bottom);
   --list-pane-width: 304px;
   --thread-pane-width: 348px;
-  --desktop-composer-rail-pad-x: 16px;
-  --desktop-composer-rail-pad-top: 12px;
-  --desktop-composer-rail-pad-bottom: 14px;
-  --desktop-composer-rail-min-h: 88px;
+  --desktop-composer-rail-pad-x: 10px;
+  --desktop-composer-rail-pad-top: 8px;
+  --desktop-composer-rail-pad-bottom: 10px;
+  --desktop-composer-rail-min-h: 76px;
   --sorting-pane-head-min-h: 72px;
   --pane-radius: 24px;
   --s-bg: #eef3ef;
@@ -491,7 +491,7 @@
   }
 
   .input-area-wrapper {
-    @apply flex shrink-0 flex-col justify-end border-t border-[var(--border-color)] bg-white;
+    @apply flex shrink-0 flex-col justify-end bg-transparent;
     min-height: var(--desktop-composer-rail-min-h);
     padding:
       var(--desktop-composer-rail-pad-top)
@@ -595,7 +595,9 @@
   }
 
   .bubble-composer-bar {
-    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] bg-[var(--input-bg)] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)];
+    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2 shadow-[0_14px_30px_rgba(23,38,28,0.08),inset_0_1px_0_rgba(255,255,255,0.72)];
+    background: color-mix(in srgb, var(--input-bg) 88%, white);
+    backdrop-filter: blur(14px);
     min-height: 56px;
   }
 
@@ -622,6 +624,9 @@
 
   .bubble-composer-input::placeholder {
     color: color-mix(in srgb, var(--text-secondary) 92%, white);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
 
   .bubble-composer-icon-btn {
@@ -707,7 +712,9 @@
   }
 
   .input-bar {
-    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] bg-[var(--input-bg)] px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)];
+    @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2 shadow-[0_14px_30px_rgba(23,38,28,0.08),inset_0_1px_0_rgba(255,255,255,0.72)];
+    background: color-mix(in srgb, var(--input-bg) 88%, white);
+    backdrop-filter: blur(14px);
     min-height: 56px;
   }
 
@@ -730,6 +737,12 @@
     max-height: 160px;
     overflow-y: hidden;
     resize: none;
+  }
+
+  .input-field::placeholder {
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
   }
 
   .icon-btn {
@@ -1222,7 +1235,7 @@
   }
 
   .thread-input {
-    @apply flex shrink-0 flex-col justify-end border-t border-[var(--border-color)] bg-white;
+    @apply flex shrink-0 flex-col justify-end bg-transparent;
     min-height: var(--desktop-composer-rail-min-h);
     padding:
       var(--desktop-composer-rail-pad-top)
@@ -2419,15 +2432,46 @@
   }
 
   .s-source-composer {
-    @apply flex shrink-0 flex-col justify-end border-t border-black/[0.05] bg-white/78 p-3;
+    @apply flex shrink-0 flex-col justify-end bg-transparent;
+    padding: 8px 10px 10px;
   }
 
-  .s-source-composer-target {
-    @apply mb-2 inline-flex self-start items-center gap-2 rounded-full bg-[var(--bubble-me)] px-3 py-1.5 text-[11px] text-[var(--accent-strong)];
+  .s-source-composer-targets {
+    @apply mb-2 flex flex-col gap-2;
   }
 
-  .s-source-composer-target strong {
-    @apply font-semibold;
+  .s-source-composer-targets__label {
+    @apply text-[11px] font-semibold text-[var(--text-secondary)];
+  }
+
+  .s-source-composer-targets__list {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  .s-source-target-pill {
+    @apply inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border border-black/[0.05] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] shadow-sm transition-all duration-200 hover:-translate-y-px hover:bg-white;
+    background: color-mix(in srgb, white 84%, var(--tool-bg));
+    backdrop-filter: blur(14px);
+  }
+
+  .s-source-target-pill.is-active {
+    @apply text-[var(--accent-strong)];
+    border-color: rgba(42, 138, 97, 0.16);
+    background: color-mix(in srgb, var(--bubble-me) 84%, white);
+    box-shadow: 0 12px 24px rgba(42, 138, 97, 0.08);
+  }
+
+  .s-source-target-pill:disabled {
+    @apply cursor-default hover:translate-y-0;
+  }
+
+  .s-source-target-pill__avatar {
+    @apply h-6 w-6 shrink-0 rounded-full;
+  }
+
+  .s-source-target-pill__text {
+    @apply min-w-0 truncate font-semibold;
+    max-width: min(220px, 32vw);
   }
 
   .s-source-composer .bubble-composer-surface {
@@ -2861,12 +2905,12 @@
   }
 
   .thread-input {
-    min-height: 84px;
+    min-height: 72px;
     padding:
+      8px
       10px
-      12px
-      calc(12px + var(--safe-area-bottom))
-      12px;
+      calc(10px + var(--safe-area-bottom))
+      10px;
   }
 
   .desktop-only {

@@ -850,11 +850,8 @@ export function SortingWorkbench({
   );
   const sourceComposerPlaceholder = useMemo(() => {
     if (!currentSourceId) return '先选择一个泡泡流...';
-    if (selectedStreams.length > 1 && focusedStream) {
-      return `发送到 ${focusedStream.title}...`;
-    }
     return '发送泡泡...';
-  }, [currentSourceId, focusedStream, selectedStreams.length]);
+  }, [currentSourceId]);
   const bubbleMap = useMemo(
     () => new Map(visibleBubbles.map((entry) => [entry.key, entry])),
     [visibleBubbles],
