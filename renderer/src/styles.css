@@ -109,7 +109,7 @@
     .thread-pane {
         width: var(--thread-pane-width);
         min-width: var(--thread-pane-width);
-        @apply shrink-0 border-l border-[var(--border-color)];
+        @apply relative shrink-0 border-l border-[var(--border-color)]; /* <- 增加了 relative */
         background: var(--conversation-pane-wash);
     }
 
@@ -316,8 +316,8 @@
 
     .msg-area {
         @apply flex-1 overflow-y-auto bg-transparent px-5 py-4;
+        padding-bottom: calc(var(--desktop-composer-rail-min-h) + 40px);
     }
-
     .time-stamp {
         @apply mx-auto mb-3 mt-2 w-fit rounded-full bg-black/[0.04] px-3 py-1 text-[11px] text-[var(--text-secondary)];
     }
@@ -554,7 +554,7 @@
     }
 
     .input-area-wrapper {
-        @apply flex shrink-0 flex-col justify-end bg-transparent;
+        @apply absolute bottom-0 left-0 right-0 flex shrink-0 flex-col justify-end bg-transparent z-10; /* <- 修改为 absolute 悬浮 */
         min-height: var(--desktop-composer-rail-min-h);
         padding: var(--desktop-composer-rail-pad-top)
             var(--desktop-composer-rail-pad-x)
@@ -563,11 +563,13 @@
                     var(--safe-area-bottom)
             )
             var(--desktop-composer-rail-pad-x);
+        pointer-events: none;
     }
 
     .bubble-composer {
         @apply flex min-w-0 flex-col gap-3;
         container-type: inline-size;
+        pointer-events: none; /* 保持外层穿透 */
     }
 
     .bubble-composer.is-disabled {
@@ -577,6 +579,7 @@
     .bubble-composer-surface {
         @apply flex min-h-0 flex-col gap-3 overflow-hidden rounded-[26px] border border-black/[0.05] bg-[var(--tool-bg)] p-3 shadow-[0_18px_36px_rgba(23,38,28,0.08)];
         max-height: min(46vh, 420px);
+        pointer-events: auto;
     }
 
     .bubble-composer-surface.is-fullscreen {
@@ -716,9 +719,10 @@
 
     .bubble-composer-bar {
         @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2;
-        background: transparent;
+        background: #ffffff;
         box-shadow: 0 14px 30px rgba(23, 38, 28, 0.08);
         min-height: 56px;
+        pointer-events: auto;
     }
 
     .bubble-composer-bar.is-expanded {
@@ -829,9 +833,11 @@
 
     .input-bar {
         @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2;
-        background: transparent;
+        background: rgba(255, 255, 255, 0.72);
+        backdrop-filter: blur(20px) saturate(1.5);
         box-shadow: 0 14px 30px rgba(23, 38, 28, 0.08);
         min-height: 56px;
+        pointer-events: auto;
     }
 
     .input-bar.is-expanded {
@@ -1086,6 +1092,7 @@
 
     .thread-scroll {
         @apply flex-1 overflow-y-auto bg-transparent p-4;
+        padding-bottom: calc(var(--desktop-composer-rail-min-h) + 40px);
     }
 
     .bot-management-scroll {
@@ -2451,7 +2458,11 @@
         @apply rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] shadow-sm hover:bg-[var(--bubble-me)];
     }
 
-    .s-source-list,
+    .s-source-list {
+        @apply min-h-0 flex-1 overflow-auto p-2.5;
+        padding-bottom: 120px;
+    }
+
     .s-luggage-body {
         @apply min-h-0 flex-1 overflow-auto p-2.5;
     }
@@ -2643,12 +2654,14 @@
     }
 
     .s-source-composer {
-        @apply flex shrink-0 flex-col justify-end bg-transparent;
+        @apply absolute bottom-0 left-0 right-0 flex shrink-0 flex-col justify-end bg-transparent z-10; /* <- 修改为 absolute 悬浮 */
         padding: 8px 10px 10px;
+        pointer-events: none;
     }
 
     .s-source-composer-targets {
         @apply mb-2 flex flex-col gap-2;
+        pointer-events: auto;
     }
 
     .s-source-composer-targets__label {
