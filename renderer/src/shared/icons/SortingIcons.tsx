@@ -242,3 +242,33 @@ export function XIcon({ size = 16, className = '' }: { size?: number; className?
     </svg>
   );
 }
+
+export function ExpandIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" strokeLinejoin="miter">
+      <path d="M9 3H3v6" />
+      <path d="m3 3 7 7" />
+      <path d="M15 3h6v6" />
+      <path d="m21 3-7 7" />
+      <path d="M9 21H3v-6" />
+      <path d="m3 21 7-7" />
+      <path d="M15 21h6v-6" />
+      <path d="m21 21-7-7" />
+    </svg>
+  );
+}
+
+export function MinimizeIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="square" strokeLinejoin="miter">
+      <path d="M9 9H4V4" />
+      <path d="m4 4 6 6" />
+      <path d="M15 9h5V4" />
+      <path d="m20 4-6 6" />
+      <path d="M9 15H4v5" />
+      <path d="m4 20 6-6" />
+      <path d="M15 15h5v5" />
+      <path d="m20 20-6-6" />
+    </svg>
+  );
+}

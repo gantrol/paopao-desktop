@@ -64,6 +64,10 @@
     cursor: col-resize !important;
     user-select: none !important;
   }
+
+  body.has-bubble-composer-fullscreen {
+    overflow: hidden;
+  }
 }
 
 @layer components {
@@ -93,6 +97,16 @@
     width: var(--thread-pane-width);
     min-width: var(--thread-pane-width);
     @apply shrink-0 border-l border-[var(--border-color)] bg-white;
+  }
+
+  .thread-pane--dialog {
+    @apply h-full w-full min-w-0 rounded-[30px] border-0;
+  }
+
+  .thread-dialog-shell {
+    width: min(92vw, 760px);
+    height: min(86vh, 920px);
+    @apply overflow-hidden rounded-[30px] bg-white shadow-2xl;
   }
 
   .sorting-pane {
@@ -514,6 +528,41 @@
     max-height: min(46vh, 420px);
   }
 
+  .bubble-composer-surface.is-fullscreen {
+    position: fixed;
+    inset: 16px;
+    z-index: 80;
+    max-height: none;
+    border-radius: 30px;
+    box-shadow:
+      0 24px 64px rgba(17, 24, 20, 0.24),
+      0 0 0 9999px rgba(15, 17, 21, 0.44);
+  }
+
+  .bubble-composer-surface__head {
+    @apply flex items-center justify-between gap-3 rounded-[22px] border border-black/[0.05] bg-white/86 px-4 py-3;
+  }
+
+  .bubble-composer-surface__title-wrap {
+    @apply min-w-0;
+  }
+
+  .bubble-composer-surface__eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)];
+  }
+
+  .bubble-composer-surface__title {
+    @apply mt-1 block text-sm text-[var(--text-primary)];
+  }
+
+  .bubble-composer-surface__actions {
+    @apply flex items-center gap-2;
+  }
+
+  .bubble-composer-surface__action {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--tool-bg)] text-[var(--text-secondary)] shadow-sm transition hover:text-[var(--text-primary)];
+  }
+
   .bubble-composer-banner {
     @apply flex items-center justify-between gap-3 rounded-[22px] border border-[var(--accent)]/14 bg-[var(--bubble-me)] px-4 py-3;
   }
@@ -594,6 +643,26 @@
     resize: none;
   }
 
+  .bubble-composer-block__textarea-shell {
+    position: relative;
+  }
+
+  .bubble-composer-block__textarea--with-tools {
+    padding-bottom: 64px;
+  }
+
+  .bubble-composer-block__quick-actions {
+    @apply absolute bottom-4 left-4 flex items-center gap-2;
+  }
+
+  .bubble-composer-block__quick-btn {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-[var(--tool-bg)] text-[var(--text-secondary)] shadow-sm transition hover:-translate-y-px hover:text-[var(--text-primary)];
+  }
+
+  .bubble-composer-block__quick-btn:disabled {
+    @apply cursor-not-allowed opacity-35 hover:translate-y-0;
+  }
+
   .bubble-composer-bar {
     @apply flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[24px] border border-black/[0.04] px-3 py-2 shadow-[0_14px_30px_rgba(23,38,28,0.08),inset_0_1px_0_rgba(255,255,255,0.72)];
     background: color-mix(in srgb, var(--input-bg) 88%, white);
@@ -633,16 +702,16 @@
     @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-[var(--text-secondary)] shadow-sm transition-all duration-200 hover:-translate-y-px hover:text-[var(--text-primary)];
   }
 
+  .bubble-composer-icon-btn--bubble {
+    @apply overflow-hidden;
+  }
+
   .bubble-composer-icon-btn:disabled {
     @apply cursor-not-allowed opacity-35 hover:translate-y-0;
   }
 
   .bubble-composer-icon-btn.is-active {
     @apply text-[var(--accent)];
-  }
-
-  .bubble-composer-icon-btn.is-active svg {
-    transform: rotate(45deg);
   }
 
   .bubble-composer-icon-btn--send.is-active {
@@ -653,27 +722,27 @@
     transform: none;
   }
 
-  .bubble-composer-tool-panel {
-    @apply pointer-events-none grid max-h-0 grid-cols-2 gap-2 overflow-hidden rounded-[22px] bg-[var(--tool-bg)] px-3 opacity-0 transition-all duration-200;
+  .bubble-composer-mobile-panel {
+    @apply pointer-events-none grid max-h-0 grid-cols-2 gap-3 overflow-hidden rounded-[22px] bg-[var(--tool-bg)] px-3 opacity-0 transition-all duration-200;
   }
 
-  .bubble-composer-tool-panel.open {
-    @apply pointer-events-auto max-h-[220px] py-3 opacity-100;
+  .bubble-composer-mobile-panel.open {
+    @apply pointer-events-auto max-h-[240px] py-3 opacity-100;
   }
 
-  .bubble-composer-tool-item {
-    @apply inline-flex min-h-[52px] w-full items-center gap-3 rounded-[18px] border border-transparent bg-white px-3 text-left text-[var(--text-secondary)] shadow-sm transition hover:-translate-y-px hover:text-[var(--text-primary)];
+  .bubble-composer-mobile-option {
+    @apply inline-flex min-h-[92px] w-full flex-col items-center justify-center gap-3 rounded-[22px] border border-transparent bg-white px-4 py-4 text-center text-[var(--text-secondary)] shadow-sm transition hover:-translate-y-px hover:text-[var(--text-primary)];
   }
 
-  .bubble-composer-tool-item:disabled {
+  .bubble-composer-mobile-option:disabled {
     @apply cursor-not-allowed opacity-35 hover:translate-y-0;
   }
 
-  .bubble-composer-tool-item__icon {
-    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-[var(--tool-bg)] text-[var(--text-primary)];
+  .bubble-composer-mobile-option__icon {
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[var(--tool-bg)] text-[var(--text-primary)];
   }
 
-  .bubble-composer-tool-item__label {
+  .bubble-composer-mobile-option__label {
     @apply min-w-0 text-sm font-medium leading-5;
   }
 
@@ -682,15 +751,11 @@
       max-height: min(52vh, 420px);
     }
 
-    .bubble-composer-icon-btn--compound {
-      display: none;
+    .bubble-composer-mobile-option {
+      @apply min-h-[84px] gap-2 px-2.5;
     }
 
-    .bubble-composer-tool-item {
-      @apply min-h-[48px] gap-2 px-2.5;
-    }
-
-    .bubble-composer-tool-item__label {
+    .bubble-composer-mobile-option__label {
       @apply text-[12px];
     }
   }
@@ -2850,6 +2915,11 @@
 @media (max-width: 768px) {
   .app-container {
     @apply flex-col;
+  }
+
+  .bubble-composer-surface.is-fullscreen {
+    inset: 0;
+    border-radius: 0;
   }
 
   .pane-edge-wrapper--thread {

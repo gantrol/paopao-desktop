@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { BubbleComposer } from '@/shared/ui/BubbleComposer';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
+import { ExpandIcon } from '@/shared/icons/SortingIcons';
 import { ResizeHandle } from '@/shared/ui/ResizeHandle';
 import type { PaneLimit } from '@/shared/hooks/useBoundedPaneSize';
 import { AI_AVATAR } from '@/shared/config/avatar';
@@ -52,6 +53,8 @@ interface ThreadPaneProps {
   onSendReply: () => void;
   onHandleThreadFiles: (files: File[]) => void | Promise<void>;
   onFocusComposer: () => void;
+  presentation?: 'pane' | 'dialog';
+  onOpenDialog?: () => void;
 }
 
 function groupReplyCountByMessageBlock(replyCountByMessageBlockId: Record<string, number>) {
@@ -289,8 +292,69 @@ export function ThreadPane({
   onSendReply,
   onHandleThreadFiles,
   onFocusComposer,
+  presentation = 'pane',
+  onOpenDialog,
 }: ThreadPaneProps) {
   const threadHeading = threadTitle?.trim() || null;
+  const isDialog = presentation === 'dialog';
+
+  if (isDialog) {
+    if (threadMsgId === null) return null;
+
+    return (
+      <div className="pane thread-pane thread-pane--dialog">
+        <div className="thread-header">
+          <div className="nav-left-actions">
+            <button type="button" className="nav-back-btn thread-back-btn" onClick={onBackToChat} aria-label="返回">
+              <img src={publicIcon('nav_back.svg')} className="nav-icon" alt="back" style={{ width: 20 }} />
+            </button>
+            <div className="thread-header-copy" style={{ marginLeft: 8 }}>
+              <span>评论</span>
+              {threadHeading ? <small className="thread-header-subtitle">{threadHeading}</small> : null}
+            </div>
+          </div>
+          <div className="nav-right-actions">
+            <button type="button" className="thread-close-btn" onClick={onClose} aria-label="关闭评论弹窗">
+              ×
+            </button>
+          </div>
+        </div>
+        <ThreadEntriesPane
+          threadMsg={threadMsg}
+          threadReplies={threadReplies}
+          threadBlockId={threadBlockId}
+          currentUserAvatar={currentUserAvatar}
+          currentChannelAvatarUrl={currentChannelAvatarUrl}
+          isCurrentConversationDirect={isCurrentConversationDirect}
+          replyCountByMessageId={replyCountByMessageId}
+          replyCountByMessageBlockId={replyCountByMessageBlockId}
+          onJumpToMsg={onJumpToMsg}
+          onOpenThread={onOpenThread}
+          onToggleLike={onToggleLike}
+          onForwardMessage={onForwardMessage}
+          onOpenFullscreen={onOpenFullscreen}
+          onOpenAttachment={onOpenAttachment}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          onContextMenu={onContextMenu}
+        />
+        <ThreadComposer
+          threadMsgId={threadMsgId}
+          currentThreadDraft={currentThreadDraft}
+          threadComposerEditBanner={threadComposerEditBanner}
+          threadInputRef={threadInputRef}
+          threadPhotoInputRef={threadPhotoInputRef}
+          threadFileInputRef={threadFileInputRef}
+          updateCurrentThreadDraft={updateCurrentThreadDraft}
+          onSendReply={onSendReply}
+          onHandleThreadFiles={onHandleThreadFiles}
+          onOpenFullscreen={onOpenFullscreen}
+          onOpenAttachment={onOpenAttachment}
+          onFocusComposer={onFocusComposer}
+        />
+      </div>
+    );
+  }
 
   if (threadMsgId === null) {
     return (
@@ -374,6 +438,17 @@ export function ThreadPane({
                 </div>
               </div>
               <div className="nav-right-actions">
+                {onOpenDialog ? (
+                  <button
+                    type="button"
+                    className="nav-icon desktop-only"
+                    onClick={onOpenDialog}
+                    aria-label="弹出评论区"
+                    title="弹出评论区"
+                  >
+                    <ExpandIcon size={16} />
+                  </button>
+                ) : null}
                 <div className="thread-close-btn desktop-only" onClick={onClose}>×</div>
               </div>
             </div>

@@ -13,12 +13,12 @@ import { CompoundBubbleIcon } from '@/shared/icons/AvatarIcons';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
+  ExpandIcon,
   FileIcon,
   ImageIcon,
   LinkIcon,
-  PlusIcon,
+  MinimizeIcon,
   SendIcon,
-  TextIcon,
   XIcon,
 } from '@/shared/icons/SortingIcons';
 import {
@@ -42,9 +42,14 @@ const PRIMARY_MIN_HEIGHT = 24;
 const PRIMARY_MAX_HEIGHT = 160;
 const BLOCK_TEXTAREA_MIN_HEIGHT = 84;
 const BLOCK_TEXTAREA_MAX_HEIGHT = 220;
+const MOBILE_BREAKPOINT = 768;
 
 function cn(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(' ');
+}
+
+function isMobileViewport() {
+  return typeof window !== 'undefined' ? window.innerWidth <= MOBILE_BREAKPOINT : false;
 }
 
 function syncTextareaHeight(
@@ -147,6 +152,10 @@ function BubbleDraftBlockCard({
   canSend,
   onFsOpen,
   onAttachmentOpen,
+  showDesktopQuickActions = false,
+  onOpenPhotoPicker,
+  onOpenFilePicker,
+  onAddLinkBlock,
 }: {
   block: BubbleBlock;
   index: number;
@@ -159,6 +168,10 @@ function BubbleDraftBlockCard({
   canSend: boolean;
   onFsOpen?: (src: string, type: 'img' | 'video') => void;
   onAttachmentOpen?: (src: string) => void;
+  showDesktopQuickActions?: boolean;
+  onOpenPhotoPicker?: () => void;
+  onOpenFilePicker?: () => void;
+  onAddLinkBlock?: () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -218,26 +231,65 @@ function BubbleDraftBlockCard({
       </div>
 
       {block.type === 'text' ? (
-        <textarea
-          ref={textareaRef}
-          className="bubble-composer-block__textarea"
-          placeholder="补充一个文本块..."
-          value={block.text || ''}
-          disabled={disabled}
-          rows={3}
-          onChange={(event) => {
-            onChange({ text: event.target.value });
-            syncTextareaHeight(event.target, { minHeight: BLOCK_TEXTAREA_MIN_HEIGHT, maxHeight: BLOCK_TEXTAREA_MAX_HEIGHT });
-          }}
-          onInput={(event) => syncTextareaHeight(event.currentTarget, { minHeight: BLOCK_TEXTAREA_MIN_HEIGHT, maxHeight: BLOCK_TEXTAREA_MAX_HEIGHT })}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || !onSend) return;
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canSend) {
-              event.preventDefault();
-              onSend();
-            }
-          }}
-        />
+        <div className="bubble-composer-block__textarea-shell">
+          <textarea
+            ref={textareaRef}
+            className={cn(
+              'bubble-composer-block__textarea',
+              showDesktopQuickActions && 'bubble-composer-block__textarea--with-tools',
+            )}
+            placeholder="补充一块..."
+            value={block.text || ''}
+            disabled={disabled}
+            rows={3}
+            onChange={(event) => {
+              onChange({ text: event.target.value });
+              syncTextareaHeight(event.target, { minHeight: BLOCK_TEXTAREA_MIN_HEIGHT, maxHeight: BLOCK_TEXTAREA_MAX_HEIGHT });
+            }}
+            onInput={(event) => syncTextareaHeight(event.currentTarget, { minHeight: BLOCK_TEXTAREA_MIN_HEIGHT, maxHeight: BLOCK_TEXTAREA_MAX_HEIGHT })}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || !onSend) return;
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canSend) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+          />
+          {showDesktopQuickActions ? (
+            <div className="bubble-composer-block__quick-actions">
+              <button
+                type="button"
+                className="bubble-composer-block__quick-btn"
+                onClick={onOpenPhotoPicker}
+                disabled={disabled || !onOpenPhotoPicker}
+                aria-label="添加图片或视频块"
+                title="添加图片或视频块"
+              >
+                <ImageIcon size={16} />
+              </button>
+              <button
+                type="button"
+                className="bubble-composer-block__quick-btn"
+                onClick={onAddLinkBlock}
+                disabled={disabled || !onAddLinkBlock}
+                aria-label="添加链接块"
+                title="添加链接块"
+              >
+                <LinkIcon size={16} />
+              </button>
+              <button
+                type="button"
+                className="bubble-composer-block__quick-btn"
+                onClick={onOpenFilePicker}
+                disabled={disabled || !onOpenFilePicker}
+                aria-label="添加文件或音频块"
+                title="添加文件或音频块"
+              >
+                <FileIcon size={16} />
+              </button>
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {block.type === 'link' ? (
@@ -321,7 +373,9 @@ export function BubbleComposer({
   const inputShellRef = useRef<HTMLDivElement | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(isMobileViewport);
+  const [mobilePickerOpen, setMobilePickerOpen] = useState(false);
+  const [isBlocksFullscreen, setIsBlocksFullscreen] = useState(false);
   const canSend = !disabled && hasDraftContent(draft);
   const blocks = getDraftBlocks(draft, { includePlaceholder: true });
   const primaryTextIndex = blocks.findIndex((block) => block.type === 'text');
@@ -368,13 +422,41 @@ export function BubbleComposer({
 
   useEffect(() => {
     if (!disabled) return;
-    setToolsOpen(false);
+    setMobilePickerOpen(false);
+    setIsBlocksFullscreen(false);
   }, [disabled]);
 
   useEffect(() => {
     if (hasDraftContent(draft)) return;
-    setToolsOpen(false);
+    setMobilePickerOpen(false);
   }, [draft]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => setIsMobile(isMobileViewport());
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobilePickerOpen(false);
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (supplementaryBlocks.length > 0) return;
+    setIsBlocksFullscreen(false);
+  }, [supplementaryBlocks.length]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    document.body.classList.toggle('has-bubble-composer-fullscreen', isBlocksFullscreen);
+    return () => {
+      document.body.classList.remove('has-bubble-composer-fullscreen');
+    };
+  }, [isBlocksFullscreen]);
 
   const assignTextareaRef = useCallback((node: HTMLTextAreaElement | null) => {
     innerRef.current = node;
@@ -404,29 +486,52 @@ export function BubbleComposer({
   }, [canSend, onSend, showSendButton, submitOnEnter]);
 
   const handleFocus = useCallback(() => {
-    setToolsOpen(false);
+    setMobilePickerOpen(false);
     onFocus?.();
   }, [onFocus]);
 
   const handleAddTextBlock = useCallback(() => {
     mutateBlocks((current) => ensureSupplementaryTextBlock(current));
-    setToolsOpen(false);
+    setMobilePickerOpen(false);
   }, [mutateBlocks]);
 
   const handleAddLinkBlock = useCallback(() => {
     mutateBlocks((current) => [...current, createMediaBubbleBlock('link', '')]);
-    setToolsOpen(false);
+    setMobilePickerOpen(false);
   }, [mutateBlocks]);
 
-  const handleToggleTools = useCallback(() => {
+  const handleBubbleTrigger = useCallback(() => {
     if (disabled) return;
-    setToolsOpen((prev) => !prev);
-  }, [disabled]);
+    if (isMobile) {
+      setMobilePickerOpen((prev) => !prev);
+      return;
+    }
+    handleAddTextBlock();
+  }, [disabled, handleAddTextBlock, isMobile]);
 
   return (
     <div className={cn('bubble-composer', disabled && 'is-disabled')}>
       {hasExpandedSurface ? (
-        <div className="bubble-composer-surface">
+        <div className={cn('bubble-composer-surface', isBlocksFullscreen && 'is-fullscreen')}>
+          {supplementaryBlocks.length > 0 ? (
+            <div className="bubble-composer-surface__head">
+              <div className="bubble-composer-surface__title-wrap">
+                <span className="bubble-composer-surface__eyebrow">内容块</span>
+                <strong className="bubble-composer-surface__title">{supplementaryBlocks.length} 块</strong>
+              </div>
+              <div className="bubble-composer-surface__actions">
+                <button
+                  type="button"
+                  className="bubble-composer-surface__action"
+                  onClick={() => setIsBlocksFullscreen((prev) => !prev)}
+                  aria-label={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
+                  title={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
+                >
+                  {isBlocksFullscreen ? <MinimizeIcon size={14} /> : <ExpandIcon size={14} />}
+                </button>
+              </div>
+            </div>
+          ) : null}
           {editBanner ? (
             <div className="bubble-composer-banner">
               <div className="bubble-composer-banner__copy">
@@ -475,6 +580,10 @@ export function BubbleComposer({
                   onRemove={() => mutateBlocks((current) => current.filter((item) => item.id !== block.id))}
                   onFsOpen={onFsOpen}
                   onAttachmentOpen={onAttachmentOpen}
+                  showDesktopQuickActions={!isMobile}
+                  onOpenPhotoPicker={onOpenPhotoPicker}
+                  onOpenFilePicker={onOpenFilePicker}
+                  onAddLinkBlock={handleAddLinkBlock}
                 />
               ))}
             </div>
@@ -485,13 +594,13 @@ export function BubbleComposer({
       <div className={cn('bubble-composer-bar', isExpanded && 'is-expanded')}>
         <button
           type="button"
-          className={cn('bubble-composer-icon-btn', toolsOpen && 'is-active')}
-          onClick={handleToggleTools}
+          className={cn('bubble-composer-icon-btn', 'bubble-composer-icon-btn--bubble', mobilePickerOpen && 'is-active')}
+          onClick={handleBubbleTrigger}
           disabled={disabled}
-          aria-label="打开更多工具"
-          title="打开更多工具"
+          aria-label={isMobile ? '打开块类型选择' : '添加内容块'}
+          title={isMobile ? '打开块类型选择' : '添加内容块'}
         >
-          <PlusIcon size={16} />
+          <CompoundBubbleIcon style={{ width: 26, height: 26 }} />
         </button>
 
         <div ref={inputShellRef} className="bubble-composer-input-shell">
@@ -515,17 +624,6 @@ export function BubbleComposer({
           />
         </div>
 
-        <button
-          type="button"
-          className="bubble-composer-icon-btn bubble-composer-icon-btn--compound"
-          onClick={handleAddTextBlock}
-          disabled={disabled}
-          aria-label="添加文本块"
-          title="添加文本块"
-        >
-          <CompoundBubbleIcon style={{ width: 26, height: 26 }} />
-        </button>
-
         {showSendButton ? (
           <button
             type="button"
@@ -540,66 +638,68 @@ export function BubbleComposer({
         ) : null}
       </div>
 
-      <div className={cn('bubble-composer-tool-panel', toolsOpen && 'open')}>
-        <button
-          type="button"
-          className="bubble-composer-tool-item"
-          onClick={handleAddTextBlock}
-          disabled={disabled}
-          aria-label="添加文本块"
-          title="添加文本块"
-        >
-          <span className="bubble-composer-tool-item__icon">
-            <TextIcon size={16} />
-          </span>
-          <span className="bubble-composer-tool-item__label">文本块</span>
-        </button>
-        <button
-          type="button"
-          className="bubble-composer-tool-item"
-          onClick={() => {
-            onOpenPhotoPicker?.();
-            setToolsOpen(false);
-          }}
-          disabled={disabled || !onOpenPhotoPicker}
-          aria-label="添加图片或视频"
-          title="添加图片或视频"
-        >
-          <span className="bubble-composer-tool-item__icon">
-            <ImageIcon size={16} />
-          </span>
-          <span className="bubble-composer-tool-item__label">图片 / 视频</span>
-        </button>
-        <button
-          type="button"
-          className="bubble-composer-tool-item"
-          onClick={() => {
-            onOpenFilePicker?.();
-            setToolsOpen(false);
-          }}
-          disabled={disabled || !onOpenFilePicker}
-          aria-label="添加文件或音频"
-          title="添加文件或音频"
-        >
-          <span className="bubble-composer-tool-item__icon">
-            <FileIcon size={16} />
-          </span>
-          <span className="bubble-composer-tool-item__label">文件 / 音频</span>
-        </button>
-        <button
-          type="button"
-          className="bubble-composer-tool-item"
-          onClick={handleAddLinkBlock}
-          disabled={disabled}
-          aria-label="添加链接"
-          title="添加链接"
-        >
-          <span className="bubble-composer-tool-item__icon">
-            <LinkIcon size={16} />
-          </span>
-          <span className="bubble-composer-tool-item__label">链接</span>
-        </button>
-      </div>
+      {isMobile ? (
+        <div className={cn('bubble-composer-mobile-panel', mobilePickerOpen && 'open')}>
+          <button
+            type="button"
+            className="bubble-composer-mobile-option"
+            onClick={handleAddTextBlock}
+            disabled={disabled}
+            aria-label="添加文本块"
+            title="添加文本块"
+          >
+            <span className="bubble-composer-mobile-option__icon">
+              <CompoundBubbleIcon style={{ width: 24, height: 24 }} />
+            </span>
+            <span className="bubble-composer-mobile-option__label">文本块</span>
+          </button>
+          <button
+            type="button"
+            className="bubble-composer-mobile-option"
+            onClick={() => {
+              onOpenPhotoPicker?.();
+              setMobilePickerOpen(false);
+            }}
+            disabled={disabled || !onOpenPhotoPicker}
+            aria-label="添加图片或视频"
+            title="添加图片或视频"
+          >
+            <span className="bubble-composer-mobile-option__icon">
+              <ImageIcon size={18} />
+            </span>
+            <span className="bubble-composer-mobile-option__label">图片 / 视频</span>
+          </button>
+          <button
+            type="button"
+            className="bubble-composer-mobile-option"
+            onClick={() => {
+              onOpenFilePicker?.();
+              setMobilePickerOpen(false);
+            }}
+            disabled={disabled || !onOpenFilePicker}
+            aria-label="添加文件或音频"
+            title="添加文件或音频"
+          >
+            <span className="bubble-composer-mobile-option__icon">
+              <FileIcon size={18} />
+            </span>
+            <span className="bubble-composer-mobile-option__label">文件 / 音频</span>
+          </button>
+          <button
+            type="button"
+            className="bubble-composer-mobile-option"
+            onClick={handleAddLinkBlock}
+            disabled={disabled}
+            aria-label="添加链接"
+            title="添加链接"
+          >
+            <span className="bubble-composer-mobile-option__icon">
+              <LinkIcon size={18} />
+            </span>
+            <span className="bubble-composer-mobile-option__label">链接</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

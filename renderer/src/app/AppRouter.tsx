@@ -168,6 +168,7 @@ export default function AppRouter() {
   );
   const [isListCollapsed, setIsListCollapsed] = useState(false);
   const [isThreadCollapsed, setIsThreadCollapsed] = useState(false);
+  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PrimaryTab>("chat");
   const [listViewMode, setListViewMode] = useState<ListViewMode>("main");
   const [channels, setChannels] = useState<ChatChannel[]>([]);
@@ -360,10 +361,19 @@ export default function AppRouter() {
     setThreadContext(null);
     setThreadNavStack([]);
     setIsThreadCollapsed(false);
+    setThreadDialogOpen(false);
     setEditingThreadMessageId(null);
     threadEditRestoreRef.current = null;
     setMobileView(nextMobileView);
   }, [activeChat, threadOrigin]);
+
+  const openThreadDialog = useCallback(() => {
+    setThreadDialogOpen(true);
+  }, []);
+
+  const closeThreadDialog = useCallback(() => {
+    setThreadDialogOpen(false);
+  }, []);
 
   const openCurrentChatThreadPane = useCallback(
     (messageId: string, blockId?: string) => {
@@ -799,6 +809,9 @@ export default function AppRouter() {
 
   useEffect(() => {
     const handleResize = () => {
+      if (window.innerWidth <= 768) {
+        setThreadDialogOpen(false);
+      }
       if (window.innerWidth > 768 && mobileView === "list") {
         if (activeChat === "assistant") setMobileView("chat");
         else if (activeChat === "sorting") setMobileView("sorting");
@@ -917,6 +930,11 @@ export default function AppRouter() {
     mainEditRestoreRef.current = null;
     setCurrentDraft(() => createEmptyDraftState());
   }, [editingMessageId, messages, setCurrentDraft]);
+
+  useEffect(() => {
+    if (threadMsgId !== null) return;
+    setThreadDialogOpen(false);
+  }, [threadMsgId]);
 
   useEffect(() => {
     if (!editingThreadMessageId) return;
@@ -2001,6 +2019,15 @@ export default function AppRouter() {
     }
     closeThreadPane();
   }, [closeThreadPane, openThreadPane, threadNavStack]);
+  const handleThreadDialogBack = useCallback(() => {
+    if (threadNavStack.length > 0) {
+      const previousContext = threadNavStack[threadNavStack.length - 1];
+      setThreadNavStack((prev) => prev.slice(0, -1));
+      openThreadPane(previousContext, { preserveStack: true });
+      return;
+    }
+    closeThreadDialog();
+  }, [closeThreadDialog, openThreadPane, threadNavStack]);
   const handleThreadReplySend = useCallback(() => {
     void sendThreadReply();
   }, [sendThreadReply]);
@@ -2375,84 +2402,43 @@ export default function AppRouter() {
         onCancel: cancelThreadEdit,
       }
     : null;
-
-  const threadPaneElement = useMemo(
-    () => (
-      <ThreadPane
-        threadMsgId={threadMsgId}
-        threadBlockId={threadBlockId}
-        threadMsg={threadMsg || null}
-        threadReplies={threadReplies}
-        isCollapsed={isThreadCollapsed}
-        limit={threadPane.limit}
-        currentUserAvatar={currentUserAvatar}
-        currentChannelAvatarUrl={threadConversation?.avatarUrl || ""}
-        isCurrentConversationDirect={isThreadConversationDirect}
-        threadTitle={threadConversationTitle}
-        userProfile={userProfile}
-        currentThreadDraft={currentThreadDraft}
-        threadComposerEditBanner={threadComposerEditBanner}
-        threadInputRef={threadInputRef}
-        threadPhotoInputRef={threadPhotoInputRef}
-        threadFileInputRef={threadFileInputRef}
-        replyCountByMessageId={threadReplyCountByMessageId}
-        replyCountByMessageBlockId={threadReplyCountByMessageBlockId}
-        onResize={resizeThreadPane}
-        onBackToChat={handleThreadBackToChat}
-        onClose={closeThreadPane}
-        onExpand={() => setIsThreadCollapsed(false)}
-        onJumpToMsg={handleThreadJumpToMsg}
-        onOpenThread={handleThreadOpenThread}
-        onToggleLike={handleThreadToggleLike}
-        onForwardMessage={handleForwardMessage}
-        onOpenFullscreen={openFullscreenMedia}
-        onOpenAttachment={openAttachmentWithDefaultApp}
-        onTouchStart={handleThreadTouchStart}
-        onTouchEnd={handlePressEnd}
-        onContextMenu={handleThreadMouseRightClick}
-        updateCurrentThreadDraft={updateCurrentThreadDraft}
-        onSendReply={handleThreadReplySend}
-        onHandleThreadFiles={handleThreadFiles}
-        onFocusComposer={noop}
-      />
-    ),
-    [
-      closeThreadPane,
-      currentThreadDraft,
-      currentUserAvatar,
-      handleForwardMessage,
-      handleThreadBackToChat,
-      handleThreadFiles,
-      handleThreadMouseRightClick,
-      handleThreadJumpToMsg,
-      handleThreadOpenThread,
-      handleThreadReplySend,
-      handleThreadTouchStart,
-      handleThreadToggleLike,
-      handlePressEnd,
-      isThreadConversationDirect,
-      isThreadCollapsed,
-      noop,
-      openAttachmentWithDefaultApp,
-      openFullscreenMedia,
-      resizeThreadPane,
-      threadBlockId,
-      threadComposerEditBanner,
-      threadConversation?.avatarUrl,
-      threadConversationTitle,
-      threadInputRef,
-      threadFileInputRef,
-      threadMsg,
-      threadMsgId,
-      threadPane.limit,
-      threadPhotoInputRef,
-      threadReplyCountByMessageBlockId,
-      threadReplyCountByMessageId,
-      threadReplies,
-      updateCurrentThreadDraft,
-      userProfile,
-    ],
-  );
+  const threadPaneSharedProps = {
+    threadMsgId,
+    threadBlockId,
+    threadMsg: threadMsg || null,
+    threadReplies,
+    isCollapsed: isThreadCollapsed,
+    limit: threadPane.limit,
+    currentUserAvatar,
+    currentChannelAvatarUrl: threadConversation?.avatarUrl || "",
+    isCurrentConversationDirect: isThreadConversationDirect,
+    threadTitle: threadConversationTitle,
+    userProfile,
+    currentThreadDraft,
+    threadComposerEditBanner,
+    threadInputRef,
+    threadPhotoInputRef,
+    threadFileInputRef,
+    replyCountByMessageId: threadReplyCountByMessageId,
+    replyCountByMessageBlockId: threadReplyCountByMessageBlockId,
+    onResize: resizeThreadPane,
+    onBackToChat: handleThreadBackToChat,
+    onClose: closeThreadPane,
+    onExpand: () => setIsThreadCollapsed(false),
+    onJumpToMsg: handleThreadJumpToMsg,
+    onOpenThread: handleThreadOpenThread,
+    onToggleLike: handleThreadToggleLike,
+    onForwardMessage: handleForwardMessage,
+    onOpenFullscreen: openFullscreenMedia,
+    onOpenAttachment: openAttachmentWithDefaultApp,
+    onTouchStart: handleThreadTouchStart,
+    onTouchEnd: handlePressEnd,
+    onContextMenu: handleThreadMouseRightClick,
+    updateCurrentThreadDraft,
+    onSendReply: handleThreadReplySend,
+    onHandleThreadFiles: handleThreadFiles,
+    onFocusComposer: noop,
+  } satisfies Parameters<typeof ThreadPane>[0];
 
   if (!bridge) {
     return (
@@ -2561,7 +2547,30 @@ export default function AppRouter() {
         onExportJson={handleExportAppJson}
         onImportJson={handleImportAppJson}
       />
-      {threadPaneElement}
+      <ThreadPane
+        {...threadPaneSharedProps}
+        presentation="pane"
+        onOpenDialog={openThreadDialog}
+      />
+
+      {threadDialogOpen && threadMsgId !== null ? (
+        <div className="settings-overlay" onClick={closeThreadDialog}>
+          <section
+            className="thread-dialog-shell"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="评论区弹窗"
+          >
+            <ThreadPane
+              {...threadPaneSharedProps}
+              presentation="dialog"
+              onBackToChat={handleThreadDialogBack}
+              onClose={closeThreadDialog}
+            />
+          </section>
+        </div>
+      ) : null}
 
       <PrimaryTabBar
         activeTab={activeTab}
