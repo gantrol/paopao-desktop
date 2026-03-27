@@ -182,6 +182,9 @@ export default function AppRouter() {
     show: false,
     x: 0,
     y: 0,
+    conversationId: null,
+    origin: "chat",
+    pane: "stream",
     msgId: null,
     blockId: undefined,
     subItemIndex: undefined,
@@ -242,6 +245,7 @@ export default function AppRouter() {
   const mainEditRestoreRef = useRef<DraftState | null>(null);
   const threadEditRestoreRef = useRef<DraftState | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const threadInputRef = useRef<HTMLTextAreaElement>(null);
   const fsVideoRef = useRef<HTMLVideoElement>(null);
   const streamPhotoInputRef = useRef<HTMLInputElement>(null);
   const streamFileInputRef = useRef<HTMLInputElement>(null);
@@ -988,12 +992,22 @@ export default function AppRouter() {
       })),
     [activeChannels],
   );
+  const contextMenuConversation = useMemo(
+    () =>
+      contextMenu.conversationId
+        ? channels.find((channel) => channel.id === contextMenu.conversationId) ||
+          null
+        : null,
+    [channels, contextMenu.conversationId],
+  );
   const contextMenuMessage = useMemo(
     () =>
-      contextMenu.msgId
-        ? messages.find((message) => message.id === contextMenu.msgId) || null
+      contextMenu.msgId && contextMenuConversation
+        ? contextMenuConversation.messages.find(
+            (message) => message.id === contextMenu.msgId,
+          ) || null
         : null,
-    [contextMenu.msgId, messages],
+    [contextMenu.msgId, contextMenuConversation],
   );
 
   const { ref: contextMenuRef, pos: clampedContextMenuPos } =
@@ -1220,18 +1234,18 @@ export default function AppRouter() {
   const handleRunContextMachine = useCallback(
     async (botId: string) => {
       try {
-        if (!currentChannel?.id || !contextMenu.msgId) return;
+        if (!contextMenu.conversationId || !contextMenu.msgId) return;
         setContextMenu((prev) => ({ ...prev, show: false }));
         setContextMenuSubmenu(null);
         await triggerMachineRun({
-          conversationId: currentChannel.id,
+          conversationId: contextMenu.conversationId,
           sourceMessageId: contextMenu.msgId,
           targetBlockId: contextMenu.blockId,
           botId,
         });
         openThreadPane({
-          origin: "chat",
-          conversationId: currentChannel.id,
+          origin: contextMenu.origin,
+          conversationId: contextMenu.conversationId,
           messageId: contextMenu.msgId,
           blockId: contextMenu.blockId,
         });
@@ -1242,8 +1256,9 @@ export default function AppRouter() {
     },
     [
       contextMenu.blockId,
+      contextMenu.conversationId,
       contextMenu.msgId,
-      currentChannel?.id,
+      contextMenu.origin,
       openThreadPane,
       showToast,
     ],
@@ -1366,6 +1381,42 @@ export default function AppRouter() {
     prepareDraftPayload,
   ]);
 
+  const openContextMenuAt = useCallback(
+    ({
+      x,
+      y,
+      msg,
+      blockId,
+      subIndex,
+      conversationId,
+      origin,
+      pane,
+    }: {
+      x: number;
+      y: number;
+      msg: MessageData;
+      blockId?: string;
+      subIndex?: number;
+      conversationId: string;
+      origin: ThreadOrigin;
+      pane: "stream" | "thread";
+    }) => {
+      const data = extractContextMenuData(msg, blockId, subIndex);
+      setContextMenuSubmenu(null);
+      setContextMenu({
+        show: true,
+        x,
+        y,
+        conversationId,
+        origin,
+        pane,
+        msgId: msg.id,
+        ...data,
+      });
+    },
+    [],
+  );
+
   const handleTouchStart = useCallback(
     (
       event: React.TouchEvent,
@@ -1373,19 +1424,51 @@ export default function AppRouter() {
       blockId?: string,
       subIndex?: number,
     ) => {
+      const touch = event.touches[0];
+      if (!touch || !currentChannel?.id) return;
+      const x = touch.clientX;
+      const y = touch.clientY;
       pressTimerRef.current = window.setTimeout(() => {
-        const data = extractContextMenuData(msg, blockId, subIndex);
-        setContextMenuSubmenu(null);
-        setContextMenu({
-          show: true,
-          x: event.touches[0].clientX,
-          y: event.touches[0].clientY,
-          msgId: msg.id,
-          ...data,
+        openContextMenuAt({
+          x,
+          y,
+          msg,
+          blockId,
+          subIndex,
+          conversationId: currentChannel.id,
+          origin: "chat",
+          pane: "stream",
         });
       }, 600);
     },
-    [],
+    [currentChannel?.id, openContextMenuAt],
+  );
+
+  const handleThreadTouchStart = useCallback(
+    (
+      event: React.TouchEvent,
+      msg: MessageData,
+      blockId?: string,
+      subIndex?: number,
+    ) => {
+      const touch = event.touches[0];
+      if (!touch || !threadConversationId || !threadOrigin) return;
+      const x = touch.clientX;
+      const y = touch.clientY;
+      pressTimerRef.current = window.setTimeout(() => {
+        openContextMenuAt({
+          x,
+          y,
+          msg,
+          blockId,
+          subIndex,
+          conversationId: threadConversationId,
+          origin: threadOrigin,
+          pane: "thread",
+        });
+      }, 600);
+    },
+    [openContextMenuAt, threadConversationId, threadOrigin],
   );
 
   const handleMouseRightClick = useCallback(
@@ -1396,17 +1479,42 @@ export default function AppRouter() {
       subIndex?: number,
     ) => {
       event.preventDefault();
-      const data = extractContextMenuData(msg, blockId, subIndex);
-      setContextMenuSubmenu(null);
-      setContextMenu({
-        show: true,
+      if (!currentChannel?.id) return;
+      openContextMenuAt({
         x: event.clientX,
         y: event.clientY,
-        msgId: msg.id,
-        ...data,
+        msg,
+        blockId,
+        subIndex,
+        conversationId: currentChannel.id,
+        origin: "chat",
+        pane: "stream",
       });
     },
-    [],
+    [currentChannel?.id, openContextMenuAt],
+  );
+
+  const handleThreadMouseRightClick = useCallback(
+    (
+      event: React.MouseEvent,
+      msg: MessageData,
+      blockId?: string,
+      subIndex?: number,
+    ) => {
+      event.preventDefault();
+      if (!threadConversationId || !threadOrigin) return;
+      openContextMenuAt({
+        x: event.clientX,
+        y: event.clientY,
+        msg,
+        blockId,
+        subIndex,
+        conversationId: threadConversationId,
+        origin: threadOrigin,
+        pane: "thread",
+      });
+    },
+    [openContextMenuAt, threadConversationId, threadOrigin],
   );
 
   const handlePressEnd = useCallback(() => {
@@ -1415,17 +1523,16 @@ export default function AppRouter() {
 
   const onTriggerQuote = async () => {
     try {
-      if (!contextMenu.msgId || !currentChannel) return;
+      if (!contextMenu.msgId || !contextMenu.conversationId) return;
       const payload = (await buildQuote({
-        conversationId: currentChannel.id,
+        conversationId: contextMenu.conversationId,
         messageId: contextMenu.msgId,
         blockId: contextMenu.blockId,
         subItemIndex: contextMenu.subItemIndex,
       })) as QuoteState;
-      setCurrentDraft((prev) => ({
-        ...prev,
+      const nextQuoteState = {
         quoteSource: {
-          relationKind: "quote",
+          relationKind: "quote" as const,
           targetMessageId: payload.targetMessageId,
           targetBlockId: payload.targetBlockId,
           snapshotBlocks: payload.snapshotBlocks || [],
@@ -1440,9 +1547,25 @@ export default function AppRouter() {
           mediaType: payload.mediaType || null,
           text: payload.text || null,
         },
-      }));
+      };
+
+      if (contextMenu.pane === "thread") {
+        updateCurrentThreadDraft((prev) => ({
+          ...prev,
+          ...nextQuoteState,
+        }));
+      } else {
+        setCurrentDraft((prev) => ({
+          ...prev,
+          ...nextQuoteState,
+        }));
+      }
       setContextMenu((prev) => ({ ...prev, show: false }));
-      inputRef.current?.focus();
+      if (contextMenu.pane === "thread") {
+        threadInputRef.current?.focus();
+      } else {
+        inputRef.current?.focus();
+      }
     } catch (error) {
       showToast(`引用失败：${getErrorMessage(error)}`);
     }
@@ -1451,11 +1574,13 @@ export default function AppRouter() {
   const onTriggerComment = () => {
     const id = contextMenu.msgId;
     const blockId = contextMenu.blockId;
+    const conversationId = contextMenu.conversationId;
+    const origin = contextMenu.origin;
     setContextMenu((prev) => ({ ...prev, show: false }));
-    if (id && currentChannel) {
+    if (id && conversationId) {
       openThreadPane({
-        origin: "chat",
-        conversationId: currentChannel.id,
+        origin,
+        conversationId,
         messageId: id,
         blockId,
       });
@@ -1479,10 +1604,18 @@ export default function AppRouter() {
   }, [updateCurrentThreadDraft]);
 
   const startEditingMessage = useCallback(
-    (messageId: string) => {
-      const targetMessage = messages.find(
-        (message) => message.id === messageId,
-      );
+    (
+      messageId: string,
+      options?: { conversationId?: string | null; origin?: ThreadOrigin },
+    ) => {
+      const targetConversationId =
+        options?.conversationId || currentChannel?.id || null;
+      const targetConversation = targetConversationId
+        ? channels.find((channel) => channel.id === targetConversationId) || null
+        : null;
+      const targetMessage =
+        targetConversation?.messages.find((message) => message.id === messageId) ||
+        null;
       if (!targetMessage) {
         showToast("消息未找到");
         return;
@@ -1494,35 +1627,54 @@ export default function AppRouter() {
 
       setContextMenu((prev) => ({ ...prev, show: false }));
       const nextDraft = buildDraftStateFromMessage(targetMessage);
+      const origin = options?.origin || "chat";
 
       if (targetMessage.replyToMessageId) {
         threadEditRestoreRef.current = currentThreadDraft;
         setEditingThreadMessageId(messageId);
         updateCurrentThreadDraft(() => nextDraft);
-        if (targetMessage.replyToMessageId !== threadMsgId && currentChannel) {
+        if (!targetConversationId) return;
+        if (
+          targetConversationId !== threadConversationId ||
+          targetMessage.replyToMessageId !== threadMsgId ||
+          targetMessage.commentTarget?.blockId !== threadBlockId
+        ) {
           openThreadPane({
-            origin: "chat",
-            conversationId: currentChannel.id,
+            origin,
+            conversationId: targetConversationId,
             messageId: targetMessage.replyToMessageId,
             blockId: targetMessage.commentTarget?.blockId,
           });
+        } else {
+          setMobileView("thread");
+          window.setTimeout(() => threadInputRef.current?.focus(), 30);
         }
+        return;
+      }
+
+      if (targetConversationId !== currentChannel?.id || origin !== "chat") {
+        showToast("请回到泡泡流里编辑这条泡泡");
         return;
       }
 
       mainEditRestoreRef.current = currentDraft;
       setEditingMessageId(messageId);
       setCurrentDraft(() => nextDraft);
+      setActiveTab("chat");
+      setActiveChat("assistant");
       setMobileView("chat");
       window.setTimeout(() => inputRef.current?.focus(), 30);
     },
     [
+      channels,
       currentChannel,
       currentDraft,
       currentThreadDraft,
-      messages,
       openThreadPane,
       setCurrentDraft,
+      threadBlockId,
+      threadConversationId,
+      threadInputRef,
       showToast,
       threadMsgId,
       updateCurrentThreadDraft,
@@ -1541,7 +1693,7 @@ export default function AppRouter() {
   };
 
   const onCopyBubbleLink = useCallback(async () => {
-    if (!currentChannel?.id || !contextMenu.msgId) {
+    if (!contextMenu.conversationId || !contextMenu.msgId) {
       showToast("当前泡泡没有可复制链接");
       setContextMenu((prev) => ({ ...prev, show: false }));
       return;
@@ -1549,7 +1701,7 @@ export default function AppRouter() {
 
     await copyTextToClipboard(
       buildBubbleLink({
-        conversationId: currentChannel.id,
+        conversationId: contextMenu.conversationId,
         messageId: contextMenu.msgId,
         blockId: contextMenu.blockId,
       }),
@@ -1558,9 +1710,9 @@ export default function AppRouter() {
     setContextMenu((prev) => ({ ...prev, show: false }));
   }, [
     contextMenu.blockId,
+    contextMenu.conversationId,
     contextMenu.msgId,
     copyTextToClipboard,
-    currentChannel?.id,
     showToast,
   ]);
 
@@ -2167,18 +2319,19 @@ export default function AppRouter() {
   const handleDeleteContextMessage = async () => {
     try {
       const messageId = contextMenu.msgId;
-      if (!messageId || !currentChannel) return;
+      const conversationId = contextMenu.conversationId;
+      if (!messageId || !conversationId) return;
       setContextMenu((prev) => ({ ...prev, show: false }));
       const confirmed = window.confirm("删除这条消息？");
       if (!confirmed) return;
       const updated = await deleteChatMessage({
-        conversationId: currentChannel.id,
+        conversationId,
         messageId,
       });
-      applyConversation(updated, { select: true });
+      applyConversation(updated, { select: contextMenu.origin === "chat" });
       setHighlightedMsg(null);
       if (
-        threadConversationId === currentChannel.id &&
+        threadConversationId === conversationId &&
         threadMsgId &&
         !updated.messages.some((item) => item.id === threadMsgId)
       ) {
@@ -2239,6 +2392,7 @@ export default function AppRouter() {
         userProfile={userProfile}
         currentThreadDraft={currentThreadDraft}
         threadComposerEditBanner={threadComposerEditBanner}
+        threadInputRef={threadInputRef}
         threadPhotoInputRef={threadPhotoInputRef}
         threadFileInputRef={threadFileInputRef}
         replyCountByMessageId={threadReplyCountByMessageId}
@@ -2253,6 +2407,9 @@ export default function AppRouter() {
         onForwardMessage={handleForwardMessage}
         onOpenFullscreen={openFullscreenMedia}
         onOpenAttachment={openAttachmentWithDefaultApp}
+        onTouchStart={handleThreadTouchStart}
+        onTouchEnd={handlePressEnd}
+        onContextMenu={handleThreadMouseRightClick}
         updateCurrentThreadDraft={updateCurrentThreadDraft}
         onSendReply={handleThreadReplySend}
         onHandleThreadFiles={handleThreadFiles}
@@ -2266,10 +2423,13 @@ export default function AppRouter() {
       handleForwardMessage,
       handleThreadBackToChat,
       handleThreadFiles,
+      handleThreadMouseRightClick,
       handleThreadJumpToMsg,
       handleThreadOpenThread,
       handleThreadReplySend,
+      handleThreadTouchStart,
       handleThreadToggleLike,
+      handlePressEnd,
       isThreadConversationDirect,
       isThreadCollapsed,
       noop,
@@ -2280,6 +2440,7 @@ export default function AppRouter() {
       threadComposerEditBanner,
       threadConversation?.avatarUrl,
       threadConversationTitle,
+      threadInputRef,
       threadFileInputRef,
       threadMsg,
       threadMsgId,
@@ -2480,7 +2641,12 @@ export default function AppRouter() {
             <div
               className="context-menu-item"
               onClick={() => {
-                if (contextMenu.msgId) startEditingMessage(contextMenu.msgId);
+                if (contextMenu.msgId) {
+                  startEditingMessage(contextMenu.msgId, {
+                    conversationId: contextMenu.conversationId,
+                    origin: contextMenu.origin,
+                  });
+                }
               }}
             >
               编辑泡泡

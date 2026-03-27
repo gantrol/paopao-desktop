@@ -19,6 +19,9 @@ export interface ContextMenuState {
   show: boolean;
   x: number;
   y: number;
+  conversationId: string | null;
+  origin: 'chat' | 'sorting';
+  pane: 'stream' | 'thread';
   msgId: string | null;
   blockId?: string;
   subItemIndex?: number;

@@ -20,7 +20,10 @@ export function extractContextMenuData(
   msg: MessageData,
   blockId?: string,
   subIndex?: number,
-): Omit<ContextMenuState, 'show' | 'x' | 'y' | 'msgId'> {
+): Omit<
+  ContextMenuState,
+  'show' | 'x' | 'y' | 'conversationId' | 'origin' | 'pane' | 'msgId'
+> {
   const blocks = getMessageBlocks(msg);
   const targetBlock = blockId
     ? findMessageBlock(msg, blockId)

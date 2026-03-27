@@ -1,4 +1,10 @@
-import { memo, useMemo, type RefObject } from 'react';
+import {
+  memo,
+  useMemo,
+  type MouseEvent as ReactMouseEvent,
+  type RefObject,
+  type TouchEvent as ReactTouchEvent,
+} from 'react';
 import { BubbleComposer } from '@/shared/ui/BubbleComposer';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
 import { ResizeHandle } from '@/shared/ui/ResizeHandle';
@@ -24,6 +30,7 @@ interface ThreadPaneProps {
   userProfile: UserProfileRecord;
   currentThreadDraft: DraftState;
   threadComposerEditBanner?: { title: string; onCancel: () => void } | null;
+  threadInputRef: RefObject<HTMLTextAreaElement | null>;
   threadPhotoInputRef: RefObject<HTMLInputElement | null>;
   threadFileInputRef: RefObject<HTMLInputElement | null>;
   replyCountByMessageId: Record<string, number>;
@@ -38,6 +45,9 @@ interface ThreadPaneProps {
   onForwardMessage: (messageId: string) => void;
   onOpenFullscreen: (src: string, type: 'img' | 'video') => void;
   onOpenAttachment: (src: string) => void | Promise<void>;
+  onTouchStart: (event: ReactTouchEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
+  onTouchEnd: () => void;
+  onContextMenu: (event: ReactMouseEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
   updateCurrentThreadDraft: (updater: (prev: DraftState) => DraftState) => void;
   onSendReply: () => void;
   onHandleThreadFiles: (files: File[]) => void | Promise<void>;
@@ -73,6 +83,9 @@ function ThreadEntry({
   onForwardMessage,
   onOpenFullscreen,
   onOpenAttachment,
+  onTouchStart,
+  onTouchEnd,
+  onContextMenu,
 }: {
   message: MessageData;
   avatarSrc: string;
@@ -86,6 +99,9 @@ function ThreadEntry({
   onForwardMessage: (messageId: string) => void;
   onOpenFullscreen: (src: string, type: 'img' | 'video') => void;
   onOpenAttachment: (src: string) => void | Promise<void>;
+  onTouchStart: (event: ReactTouchEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
+  onTouchEnd: () => void;
+  onContextMenu: (event: ReactMouseEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
 }) {
   return (
     <div className="thread-comment-item">
@@ -101,6 +117,10 @@ function ThreadEntry({
             onForward={onForwardMessage}
             onFsOpen={onOpenFullscreen}
             onAttachmentOpen={(src) => { void onOpenAttachment(src); }}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+            onTouchMove={onTouchEnd}
+            onContextMenu={onContextMenu}
             highlightedMsg={highlightedMsg}
             replyCount={replyCountByMessageId[message.id] || 0}
             replyCountByBlock={replyCountByMessageBlockId}
@@ -126,6 +146,9 @@ interface ThreadEntriesPaneProps {
   onForwardMessage: (messageId: string) => void;
   onOpenFullscreen: (src: string, type: 'img' | 'video') => void;
   onOpenAttachment: (src: string) => void | Promise<void>;
+  onTouchStart: (event: ReactTouchEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
+  onTouchEnd: () => void;
+  onContextMenu: (event: ReactMouseEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
 }
 
 const ThreadEntriesPane = memo(function ThreadEntriesPane({
@@ -143,6 +166,9 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
   onForwardMessage,
   onOpenFullscreen,
   onOpenAttachment,
+  onTouchStart,
+  onTouchEnd,
+  onContextMenu,
 }: ThreadEntriesPaneProps) {
   const replyCountByMessageIdMap = useMemo(
     () => groupReplyCountByMessageBlock(replyCountByMessageBlockId),
@@ -170,6 +196,9 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
           onForwardMessage={onForwardMessage}
           onOpenFullscreen={onOpenFullscreen}
           onOpenAttachment={onOpenAttachment}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          onContextMenu={onContextMenu}
         />
         {threadReplies.map((reply) => (
           <ThreadEntry
@@ -190,6 +219,9 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
             onForwardMessage={onForwardMessage}
             onOpenFullscreen={onOpenFullscreen}
             onOpenAttachment={onOpenAttachment}
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+            onContextMenu={onContextMenu}
           />
         ))}
       </>
@@ -203,6 +235,9 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
     onOpenAttachment,
     onOpenFullscreen,
     onOpenThread,
+    onContextMenu,
+    onTouchEnd,
+    onTouchStart,
     onToggleLike,
     replyCountByMessageId,
     replyCountByMessageIdMap,
@@ -232,6 +267,7 @@ export function ThreadPane({
   userProfile,
   currentThreadDraft,
   threadComposerEditBanner,
+  threadInputRef,
   threadPhotoInputRef,
   threadFileInputRef,
   replyCountByMessageId,
@@ -246,6 +282,9 @@ export function ThreadPane({
   onForwardMessage,
   onOpenFullscreen,
   onOpenAttachment,
+  onTouchStart,
+  onTouchEnd,
+  onContextMenu,
   updateCurrentThreadDraft,
   onSendReply,
   onHandleThreadFiles,
@@ -282,11 +321,15 @@ export function ThreadPane({
           onForwardMessage={onForwardMessage}
           onOpenFullscreen={onOpenFullscreen}
           onOpenAttachment={onOpenAttachment}
+          onTouchStart={onTouchStart}
+          onTouchEnd={onTouchEnd}
+          onContextMenu={onContextMenu}
         />
         <ThreadComposer
           threadMsgId={threadMsgId}
           currentThreadDraft={currentThreadDraft}
           threadComposerEditBanner={threadComposerEditBanner}
+          threadInputRef={threadInputRef}
           threadPhotoInputRef={threadPhotoInputRef}
           threadFileInputRef={threadFileInputRef}
           updateCurrentThreadDraft={updateCurrentThreadDraft}
@@ -349,11 +392,15 @@ export function ThreadPane({
               onForwardMessage={onForwardMessage}
               onOpenFullscreen={onOpenFullscreen}
               onOpenAttachment={onOpenAttachment}
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+              onContextMenu={onContextMenu}
             />
             <ThreadComposer
               threadMsgId={threadMsgId}
               currentThreadDraft={currentThreadDraft}
               threadComposerEditBanner={threadComposerEditBanner}
+              threadInputRef={threadInputRef}
               threadPhotoInputRef={threadPhotoInputRef}
               threadFileInputRef={threadFileInputRef}
               updateCurrentThreadDraft={updateCurrentThreadDraft}
@@ -374,6 +421,7 @@ interface ThreadComposerProps {
   threadMsgId: string | null;
   currentThreadDraft: DraftState;
   threadComposerEditBanner?: { title: string; onCancel: () => void } | null;
+  threadInputRef: RefObject<HTMLTextAreaElement | null>;
   threadPhotoInputRef: RefObject<HTMLInputElement | null>;
   threadFileInputRef: RefObject<HTMLInputElement | null>;
   updateCurrentThreadDraft: (updater: (prev: DraftState) => DraftState) => void;
@@ -388,6 +436,7 @@ function ThreadComposer({
   threadMsgId,
   currentThreadDraft,
   threadComposerEditBanner,
+  threadInputRef,
   threadPhotoInputRef,
   threadFileInputRef,
   updateCurrentThreadDraft,
@@ -403,6 +452,7 @@ function ThreadComposer({
         draft={currentThreadDraft}
         placeholder={threadMsgId ? '写评论...' : '先打开一条泡泡再评论...'}
         disabled={!threadMsgId}
+        textareaRef={threadInputRef}
         editBanner={threadComposerEditBanner}
         onDraftChange={updateCurrentThreadDraft}
         onSend={onSendReply}
