@@ -29,6 +29,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let mainWindow = null;
+const threadWindows = new Map();
 let store = null;
 let linkPreviewService = null;
 let aiService = null;
@@ -47,8 +48,22 @@ function getPreloadPath() {
 }
 
 function emitRendererEvent(channel, payload) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send(channel, payload);
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) continue;
+    window.webContents.send(channel, payload);
+  }
+}
+
+function emitConversationChanged(conversation) {
+  if (
+    !conversation ||
+    typeof conversation !== "object" ||
+    typeof conversation.chatId !== "string" ||
+    !Array.isArray(conversation.messages)
+  ) {
+    return;
+  }
+  emitRendererEvent("conversation:changed", conversation);
 }
 
 async function openWithDefaultApp(target) {
@@ -113,8 +128,48 @@ function applyMacDockIcon() {
   app.dock.setIcon(icon);
 }
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+function configureRendererWindow(window) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openWithDefaultApp(url).catch(() => {});
+    return { action: "deny" };
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (!/^https?:\/\//i.test(url)) return;
+    event.preventDefault();
+    openWithDefaultApp(url).catch(() => {});
+  });
+}
+
+function loadRendererWindow(window, query = {}) {
+  const filteredQuery = Object.fromEntries(
+    Object.entries(query).filter(
+      ([, value]) => value !== undefined && value !== null && value !== "",
+    ),
+  );
+  const entry = getRendererEntry();
+  if (entry.type === "url") {
+    const url = new URL(entry.value);
+    Object.entries(filteredQuery).forEach(([key, value]) => {
+      url.searchParams.set(key, String(value));
+    });
+    window.loadURL(url.toString());
+    return;
+  }
+
+  window.loadFile(entry.value, { query: filteredQuery });
+}
+
+function buildThreadWindowKey(payload) {
+  return [
+    payload?.conversationId || "",
+    payload?.messageId || "",
+    payload?.blockId || "",
+  ].join(":");
+}
+
+function createMainWindow() {
+  const window = new BrowserWindow({
     width: 1480,
     height: 960,
     minWidth: 1100,
@@ -129,27 +184,85 @@ function createWindow() {
     },
   });
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openWithDefaultApp(url).catch(() => {});
-    return { action: "deny" };
+  configureRendererWindow(window);
+
+  window.once("ready-to-show", () => {
+    window.show();
   });
 
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!/^https?:\/\//i.test(url)) return;
-    event.preventDefault();
-    openWithDefaultApp(url).catch(() => {});
+  window.on("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
   });
 
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
-  });
+  loadRendererWindow(window);
+  mainWindow = window;
+  return window;
+}
 
-  const entry = getRendererEntry();
-  if (entry.type === "url") {
-    mainWindow.loadURL(entry.value);
-  } else {
-    mainWindow.loadFile(entry.value);
+function openThreadWindow(payload) {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    typeof payload.conversationId !== "string" ||
+    !payload.conversationId.trim() ||
+    typeof payload.messageId !== "string" ||
+    !payload.messageId.trim()
+  ) {
+    throw new Error("conversationId and messageId are required");
   }
+
+  const key = buildThreadWindowKey(payload);
+  const existingWindow = threadWindows.get(key);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) existingWindow.restore();
+    existingWindow.focus();
+    return { ok: true };
+  }
+
+  const ownerWindow =
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const window = new BrowserWindow({
+    width: 860,
+    height: 920,
+    minWidth: 520,
+    minHeight: 680,
+    title: "评论",
+    backgroundColor: "#f4f7f2",
+    autoHideMenuBar: true,
+    parent: ownerWindow,
+    show: false,
+    webPreferences: {
+      preload: getPreloadPath(),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  configureRendererWindow(window);
+  window.once("ready-to-show", () => {
+    window.show();
+  });
+  window.on("closed", () => {
+    threadWindows.delete(key);
+  });
+
+  loadRendererWindow(window, {
+    view: "thread-window",
+    origin:
+      typeof payload.origin === "string" && payload.origin.trim()
+        ? payload.origin.trim()
+        : "chat",
+    conversationId: payload.conversationId.trim(),
+    messageId: payload.messageId.trim(),
+    blockId:
+      typeof payload.blockId === "string" ? payload.blockId.trim() : undefined,
+  });
+
+  threadWindows.set(key, window);
+  return { ok: true };
 }
 
 function registerAssetProtocol() {
@@ -164,38 +277,49 @@ function registerAssetProtocol() {
 }
 
 function registerIpcHandlers() {
+  const registerConversationMutation = (channel, handler) => {
+    ipcMain.handle(channel, async (event, payload) => {
+      const result = await handler(event, payload);
+      emitConversationChanged(result);
+      return result;
+    });
+  };
+
   ipcMain.handle("conversation:list", () => store.listConversations());
   ipcMain.handle("conversation:get", (_event, conversationId) =>
     store.getConversation(conversationId),
   );
-  ipcMain.handle("conversation:save", (_event, payload) =>
+  ipcMain.handle("system:open-thread-window", (_event, payload) =>
+    openThreadWindow(payload),
+  );
+  registerConversationMutation("conversation:save", (_event, payload) =>
     store.upsertConversation(payload),
   );
-  ipcMain.handle("conversation:create", (_event, payload) =>
+  registerConversationMutation("conversation:create", (_event, payload) =>
     store.createConversation(payload),
   );
-  ipcMain.handle("conversation:clear", (_event, conversationId) =>
+  registerConversationMutation("conversation:clear", (_event, conversationId) =>
     store.clearConversationMessages(conversationId),
   );
-  ipcMain.handle("conversation:update-meta", (_event, payload) =>
+  registerConversationMutation("conversation:update-meta", (_event, payload) =>
     store.updateConversationMeta(payload),
   );
-  ipcMain.handle("message:send", (_event, payload) =>
+  registerConversationMutation("message:send", (_event, payload) =>
     store.sendMessage(payload),
   );
-  ipcMain.handle("message:update", (_event, payload) =>
+  registerConversationMutation("message:update", (_event, payload) =>
     store.updateMessage(payload),
   );
-  ipcMain.handle("message:delete", (_event, payload) =>
+  registerConversationMutation("message:delete", (_event, payload) =>
     store.deleteMessage(payload),
   );
   ipcMain.handle("message:quote", (_event, payload) =>
     store.quoteMessage(payload),
   );
-  ipcMain.handle("message:comment", (_event, payload) =>
+  registerConversationMutation("message:comment", (_event, payload) =>
     store.commentMessage(payload),
   );
-  ipcMain.handle("message:toggle-like", (_event, payload) =>
+  registerConversationMutation("message:toggle-like", (_event, payload) =>
     store.toggleLike(payload),
   );
   ipcMain.handle("asset:import-file", (_event, payload) =>
@@ -250,7 +374,7 @@ function registerIpcHandlers() {
   ipcMain.handle("settings:save-user-profile", (_event, payload) =>
     store.saveUserProfile(payload),
   );
-  ipcMain.handle("bots:ensure-direct-conversation", (_event, botId) =>
+  registerConversationMutation("bots:ensure-direct-conversation", (_event, botId) =>
     store.ensureDirectBotConversation(botId),
   );
   ipcMain.handle("conversation:save-bot-binding", (_event, payload) => {
@@ -292,16 +416,17 @@ app.whenReady().then(() => {
       emitRendererEvent("ai:conversation-bot-stream", payload),
     emitMachineRunStreamEvent: (payload) =>
       emitRendererEvent("ai:machine-run-stream", payload),
+    emitConversationChanged,
   });
 
   registerAssetProtocol();
   registerIpcHandlers();
   applyMacDockIcon();
-  createWindow();
+  createMainWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+      createMainWindow();
     }
   });
 });

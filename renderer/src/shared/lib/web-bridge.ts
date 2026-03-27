@@ -671,9 +671,20 @@ function createWebBridge(): DesktopBridge {
             typeof payload.avatarUrl === "string"
               ? payload.avatarUrl
               : found.avatarUrl,
-          lifecycleStatus: payload.lifecycleStatus ?? found.lifecycleStatus,
-          isPinned: payload.isPinned ?? found.isPinned,
-          isFolded: payload.isFolded ?? found.isFolded,
+          lifecycleStatus:
+            payload.lifecycleStatus === "flowing" ||
+            payload.lifecycleStatus === "archived" ||
+            payload.lifecycleStatus === "deleted"
+              ? payload.lifecycleStatus
+              : found.lifecycleStatus,
+          isPinned:
+            typeof payload.isPinned === "boolean"
+              ? payload.isPinned
+              : found.isPinned,
+          isFolded:
+            typeof payload.isFolded === "boolean"
+              ? payload.isFolded
+              : found.isFolded,
           metadata: {
             ...(found.metadata || {}),
             ...(payload.uiState !== undefined

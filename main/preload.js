@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld("paopao", {
       ipcRenderer.invoke("conversation:clear", conversationId),
     updateMeta: (payload) =>
       ipcRenderer.invoke("conversation:update-meta", payload),
+    onChanged: (listener) => {
+      const handler = (_event, payload) => listener(payload);
+      ipcRenderer.on("conversation:changed", handler);
+      return () =>
+        ipcRenderer.removeListener("conversation:changed", handler);
+    },
   },
   messages: {
     send: (payload) => ipcRenderer.invoke("message:send", payload),
@@ -79,5 +85,7 @@ contextBridge.exposeInMainWorld("paopao", {
   system: {
     getInfo: () => ipcRenderer.invoke("system:get-info"),
     exportData: () => ipcRenderer.invoke("system:export-data"),
+    openThreadWindow: (payload) =>
+      ipcRenderer.invoke("system:open-thread-window", payload),
   },
 });

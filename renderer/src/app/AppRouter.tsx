@@ -73,6 +73,8 @@ import {
   listAiProviders,
   listBots,
   listChats,
+  onChatChanged,
+  openThreadWindow,
   saveAiProvider,
   saveBot,
   saveUserProfile,
@@ -120,6 +122,16 @@ interface PendingJumpTarget {
   blockId?: string;
 }
 
+type WindowMode =
+  | { type: "main" }
+  | {
+      type: "thread-window";
+      origin: ThreadOrigin;
+      conversationId: string;
+      messageId: string;
+      blockId?: string;
+    };
+
 type SortingSourceLocator = (
   payload: SortingSourceLocatorPayload,
 ) => void | Promise<void>;
@@ -156,19 +168,55 @@ function downloadJsonFile(fileName: string, payload: unknown) {
   URL.revokeObjectURL(url);
 }
 
+function readWindowMode(): WindowMode {
+  if (typeof window === "undefined") {
+    return { type: "main" };
+  }
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("view") !== "thread-window") {
+    return { type: "main" };
+  }
+
+  const conversationId = params.get("conversationId")?.trim() || "";
+  const messageId = params.get("messageId")?.trim() || "";
+  if (!conversationId || !messageId) {
+    return { type: "main" };
+  }
+
+  const origin = params.get("origin") === "sorting" ? "sorting" : "chat";
+  const blockId = params.get("blockId")?.trim() || undefined;
+  return {
+    type: "thread-window",
+    origin,
+    conversationId,
+    messageId,
+    blockId,
+  };
+}
+
 export default function AppRouter() {
   const bridge = getDesktopBridge();
+  const windowMode = useMemo(() => readWindowMode(), []);
+  const isThreadWindow = windowMode.type === "thread-window";
   const [mobileView, setMobileView] = useState<
     "list" | "chat" | "thread" | "sorting" | "factory"
-  >("list");
+  >(() => (isThreadWindow ? "thread" : "list"));
   const [activeChat, setActiveChat] = useState<ActiveChatPane>("assistant");
-  const [selectedChatId, setSelectedChatId] = useState("");
+  const [selectedChatId, setSelectedChatId] = useState(
+    isThreadWindow ? windowMode.conversationId : "",
+  );
   const [threadContext, setThreadContext] = useState<ThreadContext | null>(
-    null,
+    isThreadWindow
+      ? {
+          origin: windowMode.origin,
+          conversationId: windowMode.conversationId,
+          messageId: windowMode.messageId,
+          blockId: windowMode.blockId,
+        }
+      : null,
   );
   const [isListCollapsed, setIsListCollapsed] = useState(false);
   const [isThreadCollapsed, setIsThreadCollapsed] = useState(false);
-  const [threadDialogOpen, setThreadDialogOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<PrimaryTab>("chat");
   const [listViewMode, setListViewMode] = useState<ListViewMode>("main");
   const [channels, setChannels] = useState<ChatChannel[]>([]);
@@ -216,6 +264,8 @@ export default function AppRouter() {
     [],
   );
   const [defaultWorkspacePath, setDefaultWorkspacePath] = useState("");
+  const [hasLoadedInitialChannels, setHasLoadedInitialChannels] =
+    useState(false);
   const [pendingJumpTarget, setPendingJumpTarget] =
     useState<PendingJumpTarget | null>(null);
   const [contextMenuSubmenu, setContextMenuSubmenu] = useState<
@@ -259,7 +309,11 @@ export default function AppRouter() {
   const threadBlockId = threadContext?.blockId;
 
   const currentChannel =
-    channels.find((item) => item.id === selectedChatId) || channels[0];
+    channels.find((item) => item.id === selectedChatId) ||
+    (isThreadWindow && threadConversationId
+      ? channels.find((item) => item.id === threadConversationId) || null
+      : null) ||
+    channels[0];
   const streamSettingsChannel =
     channels.find((item) => item.id === streamSettingsChatId) || null;
   const manualMachineBots = useMemo(
@@ -352,6 +406,10 @@ export default function AppRouter() {
   );
 
   const closeThreadPane = useCallback(() => {
+    if (isThreadWindow) {
+      window.close();
+      return;
+    }
     const nextMobileView =
       activeChat === "factory"
         ? "factory"
@@ -361,19 +419,10 @@ export default function AppRouter() {
     setThreadContext(null);
     setThreadNavStack([]);
     setIsThreadCollapsed(false);
-    setThreadDialogOpen(false);
     setEditingThreadMessageId(null);
     threadEditRestoreRef.current = null;
     setMobileView(nextMobileView);
-  }, [activeChat, threadOrigin]);
-
-  const openThreadDialog = useCallback(() => {
-    setThreadDialogOpen(true);
-  }, []);
-
-  const closeThreadDialog = useCallback(() => {
-    setThreadDialogOpen(false);
-  }, []);
+  }, [activeChat, isThreadWindow, threadOrigin]);
 
   const openCurrentChatThreadPane = useCallback(
     (messageId: string, blockId?: string) => {
@@ -414,6 +463,26 @@ export default function AppRouter() {
     }
     toastTimerRef.current = window.setTimeout(() => setToastMsg(""), 2000);
   }, []);
+
+  const openThreadDialog = useCallback(async () => {
+    if (!threadConversationId || !threadMsgId) return;
+    try {
+      await openThreadWindow({
+        origin: threadOrigin || "chat",
+        conversationId: threadConversationId,
+        messageId: threadMsgId,
+        blockId: threadBlockId,
+      });
+    } catch (error) {
+      showToast(`打开评论窗口失败：${getErrorMessage(error)}`);
+    }
+  }, [
+    showToast,
+    threadBlockId,
+    threadConversationId,
+    threadMsgId,
+    threadOrigin,
+  ]);
 
   const copyTextToClipboard = useCallback(
     async (text: string, successMessage: string) => {
@@ -566,6 +635,13 @@ export default function AppRouter() {
     [mergeStreamingRecord],
   );
 
+  useEffect(() => {
+    if (!bridge) return undefined;
+    return onChatChanged((record) => {
+      applyConversation(record, { select: false });
+    });
+  }, [applyConversation, bridge]);
+
   const maybeTriggerAutoMachines = useCallback(
     async (conversation: ChatRecord, messageId?: string | null) => {
       const resolvedMessageId =
@@ -648,6 +724,7 @@ export default function AppRouter() {
   );
   const buildCurrentConversationUiState = useCallback(
     (overrides?: { messageScrollTop?: number }): ConversationUiState | null => {
+      if (isThreadWindow) return null;
       if (!currentChannel) return null;
       const fallbackScrollTop = currentConversationUiState.messageScrollTop;
       const nextScrollTop =
@@ -676,6 +753,7 @@ export default function AppRouter() {
       currentChannel,
       currentConversationUiState.messageScrollTop,
       isThreadCollapsed,
+      isThreadWindow,
       threadBlockId,
       threadConversationId,
       threadMsgId,
@@ -685,6 +763,7 @@ export default function AppRouter() {
 
   const persistCurrentConversationUiState = useCallback(
     (options?: { immediate?: boolean; messageScrollTop?: number }) => {
+      if (isThreadWindow) return;
       if (!currentChannel) return;
       if (threadOrigin === "sorting") return;
       const nextUiState = buildCurrentConversationUiState({
@@ -732,13 +811,14 @@ export default function AppRouter() {
     [
       buildCurrentConversationUiState,
       currentChannel,
+      isThreadWindow,
       persistConversationMeta,
       threadOrigin,
     ],
   );
 
   useEffect(() => {
-    const buildInitialTransferAssistantChat = () => {
+    const buildInitialTransferAssistantChat = (): Partial<ChatRecord> => {
       const ts = Date.now();
 
       return {
@@ -749,11 +829,11 @@ export default function AppRouter() {
         messages: [
           {
             id: globalThis.crypto.randomUUID(),
-            role: "ai",
-            type: "text",
+            role: "ai" as const,
+            type: "text" as const,
             content: "来冒个泡吧",
             time: ts,
-            status: "success",
+            status: "success" as const,
             senderName: "泡泡传输助手",
             senderAvatarPreset: DEFAULT_STREAM_AVATAR_PRESET,
             metadata: {
@@ -773,6 +853,7 @@ export default function AppRouter() {
           const nextChannel = deriveChannelFromRecord(created);
           setChannels([nextChannel]);
           setSelectedChatId(nextChannel.id);
+          setHasLoadedInitialChannels(true);
           return;
         }
 
@@ -799,6 +880,7 @@ export default function AppRouter() {
             loaded[0]?.id ||
             "",
         );
+        setHasLoadedInitialChannels(true);
       } catch (error) {
         showToast(`加载会话失败：${getErrorMessage(error)}`);
       }
@@ -809,9 +891,6 @@ export default function AppRouter() {
 
   useEffect(() => {
     const handleResize = () => {
-      if (window.innerWidth <= 768) {
-        setThreadDialogOpen(false);
-      }
       if (window.innerWidth > 768 && mobileView === "list") {
         if (activeChat === "assistant") setMobileView("chat");
         else if (activeChat === "sorting") setMobileView("sorting");
@@ -835,6 +914,7 @@ export default function AppRouter() {
   }, [contextMenu.show]);
 
   useLayoutEffect(() => {
+    if (isThreadWindow) return;
     if (!currentChannel) return;
     if (activeChat !== "assistant") return;
     skipNextConversationUiPersistRef.current = true;
@@ -860,7 +940,7 @@ export default function AppRouter() {
     );
     setNavStack([]);
     setThreadNavStack([]);
-  }, [activeChat, currentChannel?.id]);
+  }, [activeChat, currentChannel?.id, isThreadWindow]);
 
   useEffect(() => {
     if (
@@ -932,11 +1012,6 @@ export default function AppRouter() {
   }, [editingMessageId, messages, setCurrentDraft]);
 
   useEffect(() => {
-    if (threadMsgId !== null) return;
-    setThreadDialogOpen(false);
-  }, [threadMsgId]);
-
-  useEffect(() => {
     if (!editingThreadMessageId) return;
     if (threadMessages.some((message) => message.id === editingThreadMessageId))
       return;
@@ -946,6 +1021,7 @@ export default function AppRouter() {
   }, [editingThreadMessageId, threadMessages, updateCurrentThreadDraft]);
 
   useEffect(() => {
+    if (!hasLoadedInitialChannels) return;
     if (!threadMsgId) return;
     if (!threadConversation) {
       closeThreadPane();
@@ -956,7 +1032,12 @@ export default function AppRouter() {
     )
       return;
     closeThreadPane();
-  }, [closeThreadPane, threadConversation, threadMsgId]);
+  }, [
+    closeThreadPane,
+    hasLoadedInitialChannels,
+    threadConversation,
+    threadMsgId,
+  ]);
 
   const activeChannels = useMemo(
     () =>
@@ -1816,6 +1897,22 @@ export default function AppRouter() {
 
   const handleThreadJumpToMsg = useCallback(
     (targetId: string, blockId?: string) => {
+      if (isThreadWindow) {
+        if (!threadConversationId || !threadOrigin || !threadContext) return;
+        if (targetId === threadContext.messageId && blockId === threadContext.blockId)
+          return;
+        setThreadNavStack((prev) => [...prev, threadContext]);
+        openThreadPane(
+          {
+            origin: threadOrigin,
+            conversationId: threadConversationId,
+            messageId: targetId,
+            blockId,
+          },
+          { preserveStack: true },
+        );
+        return;
+      }
       if (threadOrigin === "sorting") {
         if (!threadConversationId || !sortingSourceLocatorRef.current) return;
         void sortingSourceLocatorRef.current({
@@ -1827,7 +1924,14 @@ export default function AppRouter() {
       }
       jumpToMsg(targetId, blockId);
     },
-    [jumpToMsg, threadConversationId, threadOrigin],
+    [
+      isThreadWindow,
+      jumpToMsg,
+      openThreadPane,
+      threadContext,
+      threadConversationId,
+      threadOrigin,
+    ],
   );
 
   const handleStreamPhotoSelect = useCallback(
@@ -1884,6 +1988,12 @@ export default function AppRouter() {
         : [],
     [threadBlockId, threadMsgId, threadSortedMessages],
   );
+
+  useEffect(() => {
+    if (!isThreadWindow) return;
+    const preview = threadMsg ? buildMessagePreviewText(threadMsg) : "";
+    document.title = preview || threadConversationTitle || "评论";
+  }, [isThreadWindow, threadConversationTitle, threadMsg]);
 
   const handleChatPaneDragOver = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -2019,15 +2129,6 @@ export default function AppRouter() {
     }
     closeThreadPane();
   }, [closeThreadPane, openThreadPane, threadNavStack]);
-  const handleThreadDialogBack = useCallback(() => {
-    if (threadNavStack.length > 0) {
-      const previousContext = threadNavStack[threadNavStack.length - 1];
-      setThreadNavStack((prev) => prev.slice(0, -1));
-      openThreadPane(previousContext, { preserveStack: true });
-      return;
-    }
-    closeThreadDialog();
-  }, [closeThreadDialog, openThreadPane, threadNavStack]);
   const handleThreadReplySend = useCallback(() => {
     void sendThreadReply();
   }, [sendThreadReply]);
@@ -2439,6 +2540,343 @@ export default function AppRouter() {
     onHandleThreadFiles: handleThreadFiles,
     onFocusComposer: noop,
   } satisfies Parameters<typeof ThreadPane>[0];
+  const canEditContextMessage =
+    contextMenuMessage?.role === "me" &&
+    (!isThreadWindow || Boolean(contextMenuMessage?.replyToMessageId));
+  const toastView = (
+    <div className={`toast ${toastMsg ? "show" : ""}`}>{toastMsg}</div>
+  );
+  const fullscreenView = fsOpen ? (
+    <div
+      className="fullscreen-overlay show"
+      onClick={() => {
+        setFsOpen(false);
+        fsVideoRef.current?.pause();
+      }}
+    >
+      <div className="fullscreen-close">×</div>
+      {fsType === "img" ? (
+        <img src={fsSrc} className="fullscreen-content" alt="fullscreen" />
+      ) : (
+        <video
+          src={fsSrc}
+          className="fullscreen-content"
+          controls
+          ref={fsVideoRef}
+          autoPlay
+          onClick={(event) => event.stopPropagation()}
+        />
+      )}
+    </div>
+  ) : null;
+  const contextMenuView = contextMenu.show ? (
+    <div
+      ref={contextMenuRef}
+      className="context-menu show"
+      style={{
+        top: clampedContextMenuPos.y,
+        left: clampedContextMenuPos.x,
+      }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div
+        className="context-menu-item"
+        onClick={() => {
+          void onCopyBubble();
+        }}
+      >
+        复制泡泡
+      </div>
+      <div
+        className="context-menu-item"
+        onClick={() => {
+          void onCopyBubbleLink();
+        }}
+      >
+        复制泡泡链接
+      </div>
+      {canEditContextMessage ? (
+        <div
+          className="context-menu-item"
+          onClick={() => {
+            if (contextMenu.msgId) {
+              startEditingMessage(contextMenu.msgId, {
+                conversationId: contextMenu.conversationId,
+                origin: contextMenu.origin,
+              });
+            }
+          }}
+        >
+          编辑泡泡
+        </div>
+      ) : null}
+      <div
+        className="context-menu-item"
+        onClick={() => {
+          void onTriggerQuote();
+        }}
+      >
+        引用
+      </div>
+      <div className="context-menu-item" onClick={onTriggerComment}>
+        评论
+      </div>
+      {manualMachineBots.length > 0 && contextMenu.msgId ? (
+        <>
+          <div
+            className="context-menu-item"
+            onClick={() =>
+              setContextMenuSubmenu((prev) =>
+                prev === "machines" ? null : "machines",
+              )
+            }
+          >
+            <span>投入泡泡机</span>
+            <span
+              className={`context-menu-caret ${contextMenuSubmenu === "machines" ? "is-open" : ""}`}
+            >
+              ›
+            </span>
+          </div>
+          {contextMenuSubmenu === "machines" ? (
+            <div className="context-menu-subgroup">
+              {manualMachineBots.map((bot) => (
+                <button
+                  key={bot.id}
+                  type="button"
+                  className="context-menu-subitem"
+                  onClick={() => {
+                    void handleRunContextMachine(bot.id);
+                  }}
+                >
+                  <span>{bot.name}</span>
+                  <span>
+                    {bot.runtimeType === "external-codex"
+                      ? "Codex"
+                      : bot.providerName || "LLM"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <div className="context-menu-item is-disabled">
+          当前没有可用泡泡机
+        </div>
+      )}
+      <div
+        className="context-menu-item"
+        onClick={() => {
+          if (contextMenu.msgId) handleForwardMessage(contextMenu.msgId);
+          setContextMenu((prev) => ({ ...prev, show: false }));
+        }}
+      >
+        转发到...
+      </div>
+      <div
+        className="context-menu-item"
+        onClick={() => {
+          void handleDeleteContextMessage();
+        }}
+      >
+        删除消息
+      </div>
+    </div>
+  ) : null;
+  const forwardingPickerView = forwardingMessageId ? (
+    <div
+      className="confirm-dialog-overlay"
+      onClick={() => setForwardingMessageId(null)}
+    >
+      <div
+        className="confirm-dialog forward-picker"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="confirm-title">选择转发到的泡泡流</div>
+        <div className="confirm-desc">选择一个目标泡泡流，直接完成纯转发。</div>
+        <div className="forward-picker-list">
+          {forwardTargets.map((channel) => (
+            <button
+              key={channel.id}
+              type="button"
+              className={`forward-picker-item ${channel.id === currentChannel?.id ? "is-current" : ""}`}
+              onClick={() => {
+                void handleSelectForwardConversation(channel.id);
+              }}
+            >
+              <div className="forward-picker-item__body">
+                <strong>{channel.title}</strong>
+                <span>{channel.lastMsg || "暂无内容"}</span>
+              </div>
+              {channel.id === currentChannel?.id ? (
+                <span className="forward-picker-item__badge">当前</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+        <div className="confirm-actions">
+          <button
+            className="btn-secondary"
+            onClick={() => setForwardingMessageId(null)}
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+  const fileConfirmView =
+    !isThreadWindow && showFileConfirm ? (
+      <div
+        className="confirm-dialog-overlay"
+        onClick={() => setShowFileConfirm(false)}
+      >
+        <div
+          className="confirm-dialog"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="confirm-title">检测到文件/图片</div>
+          <div className="confirm-desc">
+            您希望直接发送这些内容，还是先放进当前泡泡的内容块托盘？
+          </div>
+          <div className="confirm-actions">
+            <button
+              className="btn-secondary"
+              onClick={async () => {
+                try {
+                  setShowFileConfirm(false);
+                  const blocks = await Promise.all(
+                    pendingFiles.map(classifyFile),
+                  );
+                  appendMainBlocks(blocks);
+                  setPendingFiles([]);
+                } catch (error) {
+                  showToast(`处理文件失败：${getErrorMessage(error)}`);
+                }
+              }}
+            >
+              加入内容块
+            </button>
+            <button
+              className="btn-primary"
+              onClick={async () => {
+                try {
+                  setShowFileConfirm(false);
+                  for (const file of pendingFiles) {
+                    const url = await uploadFile(file);
+                    const item = classifyMessageFile(file, url);
+                    if (item.type === "file") {
+                      await sendRawMessage({
+                        id: crypto.randomUUID(),
+                        role: "me",
+                        type: "file",
+                        content: {
+                          name: file.name,
+                          size: `${(file.size / 1024).toFixed(1)} KB`,
+                          url,
+                        },
+                        time: Date.now(),
+                      });
+                    } else {
+                      await sendRawMessage({
+                        id: crypto.randomUUID(),
+                        role: "me",
+                        type: item.type as MessageData["type"],
+                        content: item.val,
+                        time: Date.now(),
+                      });
+                    }
+                  }
+                  setPendingFiles([]);
+                } catch (error) {
+                  showToast(`直接发送失败：${getErrorMessage(error)}`);
+                }
+              }}
+            >
+              直接发送
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+  const linkConfirmView =
+    !isThreadWindow && showLinkConfirm ? (
+      <div
+        className="confirm-dialog-overlay"
+        onClick={() => setShowLinkConfirm(false)}
+      >
+        <div
+          className="confirm-dialog"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="confirm-title">检测到链接</div>
+          <div className="confirm-desc">
+            是否将此链接加入当前泡泡的内容块，或直接发送成单独泡泡？
+          </div>
+          <div className="confirm-actions">
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setShowLinkConfirm(false);
+                if (pendingLink) {
+                  setCurrentDraft((prev) =>
+                    updateDraftBlocks(prev, [
+                      ...getDraftBlocks(prev),
+                      {
+                        id: crypto.randomUUID(),
+                        type: "text",
+                        text: pendingLink,
+                      },
+                    ]),
+                  );
+                }
+                setPendingLink(null);
+              }}
+            >
+              作为文本
+            </button>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setShowLinkConfirm(false);
+                if (pendingLink) {
+                  setCurrentDraft((prev) =>
+                    updateDraftBlocks(prev, [
+                      ...getDraftBlocks(prev),
+                      {
+                        id: crypto.randomUUID(),
+                        type: "link",
+                        url: pendingLink,
+                      },
+                    ]),
+                  );
+                }
+                setPendingLink(null);
+              }}
+            >
+              加入内容块
+            </button>
+          </div>
+        </div>
+      </div>
+    ) : null;
+  const streamSettingsView = !isThreadWindow ? (
+    <StreamSettingsModal
+      open={streamSettingsOpen}
+      channel={streamSettingsChannel}
+      userProfile={userProfile}
+      defaultWorkspacePath={defaultWorkspacePath}
+      onClose={() => setStreamSettingsOpen(false)}
+      onSaveBasics={updateCurrentStreamBasics}
+      onSaveUserAvatar={handleSaveUserAvatar}
+      onClearMessages={clearCurrentStreamMessages}
+      onTogglePinned={toggleCurrentStreamPinned}
+      onToggleFolded={toggleCurrentStreamFolded}
+      onSetLifecycleStatus={setCurrentStreamLifecycle}
+      onOpenGlobalBotSettings={handleOpenGlobalBotSettings}
+    />
+  ) : null;
 
   if (!bridge) {
     return (
@@ -2454,6 +2892,18 @@ export default function AppRouter() {
             开发时请运行 `npm run dev --workspace desktop`。
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (isThreadWindow) {
+    return (
+      <div className="thread-window-shell">
+        <ThreadPane {...threadPaneSharedProps} presentation="window" />
+        {toastView}
+        {fullscreenView}
+        {contextMenuView}
+        {forwardingPickerView}
       </div>
     );
   }
@@ -2547,30 +2997,12 @@ export default function AppRouter() {
         onExportJson={handleExportAppJson}
         onImportJson={handleImportAppJson}
       />
+
       <ThreadPane
         {...threadPaneSharedProps}
         presentation="pane"
         onOpenDialog={openThreadDialog}
       />
-
-      {threadDialogOpen && threadMsgId !== null ? (
-        <div className="settings-overlay" onClick={closeThreadDialog}>
-          <section
-            className="thread-dialog-shell"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="评论区弹窗"
-          >
-            <ThreadPane
-              {...threadPaneSharedProps}
-              presentation="dialog"
-              onBackToChat={handleThreadDialogBack}
-              onClose={closeThreadDialog}
-            />
-          </section>
-        </div>
-      ) : null}
 
       <PrimaryTabBar
         activeTab={activeTab}
@@ -2596,340 +3028,13 @@ export default function AppRouter() {
         onToggleList={() => setIsListCollapsed((prev) => !prev)}
       />
 
-      <div className={`toast ${toastMsg ? "show" : ""}`}>{toastMsg}</div>
-      {fsOpen && (
-        <div
-          className="fullscreen-overlay show"
-          onClick={() => {
-            setFsOpen(false);
-            fsVideoRef.current?.pause();
-          }}
-        >
-          <div className="fullscreen-close">×</div>
-          {fsType === "img" ? (
-            <img src={fsSrc} className="fullscreen-content" alt="fullscreen" />
-          ) : (
-            <video
-              src={fsSrc}
-              className="fullscreen-content"
-              controls
-              ref={fsVideoRef}
-              autoPlay
-              onClick={(event) => event.stopPropagation()}
-            />
-          )}
-        </div>
-      )}
-      {contextMenu.show && (
-        <div
-          ref={contextMenuRef}
-          className="context-menu show"
-          style={{
-            top: clampedContextMenuPos.y,
-            left: clampedContextMenuPos.x,
-          }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div
-            className="context-menu-item"
-            onClick={() => {
-              void onCopyBubble();
-            }}
-          >
-            复制泡泡
-          </div>
-          <div
-            className="context-menu-item"
-            onClick={() => {
-              void onCopyBubbleLink();
-            }}
-          >
-            复制泡泡链接
-          </div>
-          {contextMenuMessage?.role === "me" ? (
-            <div
-              className="context-menu-item"
-              onClick={() => {
-                if (contextMenu.msgId) {
-                  startEditingMessage(contextMenu.msgId, {
-                    conversationId: contextMenu.conversationId,
-                    origin: contextMenu.origin,
-                  });
-                }
-              }}
-            >
-              编辑泡泡
-            </div>
-          ) : null}
-          <div
-            className="context-menu-item"
-            onClick={() => {
-              void onTriggerQuote();
-            }}
-          >
-            引用
-          </div>
-          <div className="context-menu-item" onClick={onTriggerComment}>
-            评论
-          </div>
-          {manualMachineBots.length > 0 && contextMenu.msgId ? (
-            <>
-              <div
-                className="context-menu-item"
-                onClick={() =>
-                  setContextMenuSubmenu((prev) =>
-                    prev === "machines" ? null : "machines",
-                  )
-                }
-              >
-                <span>投入泡泡机</span>
-                <span
-                  className={`context-menu-caret ${contextMenuSubmenu === "machines" ? "is-open" : ""}`}
-                >
-                  ›
-                </span>
-              </div>
-              {contextMenuSubmenu === "machines" ? (
-                <div className="context-menu-subgroup">
-                  {manualMachineBots.map((bot) => (
-                    <button
-                      key={bot.id}
-                      type="button"
-                      className="context-menu-subitem"
-                      onClick={() => {
-                        void handleRunContextMachine(bot.id);
-                      }}
-                    >
-                      <span>{bot.name}</span>
-                      <span>
-                        {bot.runtimeType === "external-codex"
-                          ? "Codex"
-                          : bot.providerName || "LLM"}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="context-menu-item is-disabled">
-              当前没有可用泡泡机
-            </div>
-          )}
-          <div
-            className="context-menu-item"
-            onClick={() => {
-              if (contextMenu.msgId) handleForwardMessage(contextMenu.msgId);
-              setContextMenu((prev) => ({ ...prev, show: false }));
-            }}
-          >
-            转发到...
-          </div>
-          <div
-            className="context-menu-item"
-            onClick={() => {
-              void handleDeleteContextMessage();
-            }}
-          >
-            删除消息
-          </div>
-        </div>
-      )}
-
-      {forwardingMessageId ? (
-        <div
-          className="confirm-dialog-overlay"
-          onClick={() => setForwardingMessageId(null)}
-        >
-          <div
-            className="confirm-dialog forward-picker"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="confirm-title">选择转发到的泡泡流</div>
-            <div className="confirm-desc">
-              选择一个目标泡泡流，直接完成纯转发。
-            </div>
-            <div className="forward-picker-list">
-              {forwardTargets.map((channel) => (
-                <button
-                  key={channel.id}
-                  type="button"
-                  className={`forward-picker-item ${channel.id === currentChannel?.id ? "is-current" : ""}`}
-                  onClick={() => {
-                    void handleSelectForwardConversation(channel.id);
-                  }}
-                >
-                  <div className="forward-picker-item__body">
-                    <strong>{channel.title}</strong>
-                    <span>{channel.lastMsg || "暂无内容"}</span>
-                  </div>
-                  {channel.id === currentChannel?.id ? (
-                    <span className="forward-picker-item__badge">当前</span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-            <div className="confirm-actions">
-              <button
-                className="btn-secondary"
-                onClick={() => setForwardingMessageId(null)}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showFileConfirm && (
-        <div
-          className="confirm-dialog-overlay"
-          onClick={() => setShowFileConfirm(false)}
-        >
-          <div
-            className="confirm-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="confirm-title">检测到文件/图片</div>
-            <div className="confirm-desc">
-              您希望直接发送这些内容，还是先放进当前泡泡的内容块托盘？
-            </div>
-            <div className="confirm-actions">
-              <button
-                className="btn-secondary"
-                onClick={async () => {
-                  try {
-                    setShowFileConfirm(false);
-                    const blocks = await Promise.all(
-                      pendingFiles.map(classifyFile),
-                    );
-                    appendMainBlocks(blocks);
-                    setPendingFiles([]);
-                  } catch (error) {
-                    showToast(`处理文件失败：${getErrorMessage(error)}`);
-                  }
-                }}
-              >
-                加入内容块
-              </button>
-              <button
-                className="btn-primary"
-                onClick={async () => {
-                  try {
-                    setShowFileConfirm(false);
-                    for (const file of pendingFiles) {
-                      const url = await uploadFile(file);
-                      const item = classifyMessageFile(file, url);
-                      if (item.type === "file") {
-                        await sendRawMessage({
-                          id: crypto.randomUUID(),
-                          role: "me",
-                          type: "file",
-                          content: {
-                            name: file.name,
-                            size: `${(file.size / 1024).toFixed(1)} KB`,
-                            url,
-                          },
-                          time: Date.now(),
-                        });
-                      } else {
-                        await sendRawMessage({
-                          id: crypto.randomUUID(),
-                          role: "me",
-                          type: item.type as MessageData["type"],
-                          content: item.val,
-                          time: Date.now(),
-                        });
-                      }
-                    }
-                    setPendingFiles([]);
-                  } catch (error) {
-                    showToast(`直接发送失败：${getErrorMessage(error)}`);
-                  }
-                }}
-              >
-                直接发送
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showLinkConfirm && (
-        <div
-          className="confirm-dialog-overlay"
-          onClick={() => setShowLinkConfirm(false)}
-        >
-          <div
-            className="confirm-dialog"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="confirm-title">检测到链接</div>
-            <div className="confirm-desc">
-              是否将此链接加入当前泡泡的内容块，或直接发送成单独泡泡？
-            </div>
-            <div className="confirm-actions">
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setShowLinkConfirm(false);
-                  if (pendingLink) {
-                    setCurrentDraft((prev) =>
-                      updateDraftBlocks(prev, [
-                        ...getDraftBlocks(prev),
-                        {
-                          id: crypto.randomUUID(),
-                          type: "text",
-                          text: pendingLink,
-                        },
-                      ]),
-                    );
-                  }
-                  setPendingLink(null);
-                }}
-              >
-                作为文本
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setShowLinkConfirm(false);
-                  if (pendingLink) {
-                    setCurrentDraft((prev) =>
-                      updateDraftBlocks(prev, [
-                        ...getDraftBlocks(prev),
-                        {
-                          id: crypto.randomUUID(),
-                          type: "link",
-                          url: pendingLink,
-                        },
-                      ]),
-                    );
-                  }
-                  setPendingLink(null);
-                }}
-              >
-                加入内容块
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <StreamSettingsModal
-        open={streamSettingsOpen}
-        channel={streamSettingsChannel}
-        userProfile={userProfile}
-        defaultWorkspacePath={defaultWorkspacePath}
-        onClose={() => setStreamSettingsOpen(false)}
-        onSaveBasics={updateCurrentStreamBasics}
-        onSaveUserAvatar={handleSaveUserAvatar}
-        onClearMessages={clearCurrentStreamMessages}
-        onTogglePinned={toggleCurrentStreamPinned}
-        onToggleFolded={toggleCurrentStreamFolded}
-        onSetLifecycleStatus={setCurrentStreamLifecycle}
-        onOpenGlobalBotSettings={handleOpenGlobalBotSettings}
-      />
+      {toastView}
+      {fullscreenView}
+      {contextMenuView}
+      {forwardingPickerView}
+      {fileConfirmView}
+      {linkConfirmView}
+      {streamSettingsView}
     </div>
   );
 }

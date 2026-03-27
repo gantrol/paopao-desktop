@@ -103,10 +103,18 @@
     @apply h-full w-full min-w-0 rounded-[30px] border-0;
   }
 
+  .thread-pane--window {
+    @apply h-full w-full min-h-0 min-w-0 overflow-hidden border-0;
+  }
+
   .thread-dialog-shell {
     width: min(92vw, 760px);
     height: min(86vh, 920px);
     @apply overflow-hidden rounded-[30px] bg-white shadow-2xl;
+  }
+
+  .thread-window-shell {
+    @apply flex h-[100dvh] w-screen min-h-0 min-w-0 overflow-hidden bg-white;
   }
 
   .sorting-pane {
@@ -3028,4 +3036,39 @@
   .thread-header .thread-back-btn {
     display: inline-flex !important;
   }
+}
+
+.thread-window-shell .pane,
+.thread-window-shell .thread-pane {
+  display: flex !important;
+  min-height: 0;
+  min-width: 0;
+}
+
+.thread-window-shell .thread-pane {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 0;
+}
+
+.thread-window-shell .thread-header {
+  flex: none;
+}
+
+.thread-window-shell .thread-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.thread-window-shell .thread-input {
+  flex: none;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #fff;
+  border-top: 1px solid var(--border-color);
 }

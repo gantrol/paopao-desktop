@@ -17,6 +17,12 @@ export async function getChat(chatId: string): Promise<ChatRecord | null> {
   return assertDesktopBridge().conversations.get(chatId);
 }
 
+export function onChatChanged(
+  listener: (chat: ChatRecord) => void,
+): () => void {
+  return assertDesktopBridge().conversations.onChanged?.(listener) || (() => {});
+}
+
 export async function createChat(
   payload?: Partial<ChatRecord>,
 ): Promise<ChatRecord> {
@@ -143,6 +149,19 @@ export async function listBotConversations(
 
 export async function exportAppData(): Promise<Record<string, unknown>> {
   return assertDesktopBridge().system.exportData();
+}
+
+export async function openThreadWindow(payload: {
+  conversationId: string;
+  messageId: string;
+  blockId?: string;
+  origin?: "chat" | "sorting";
+}): Promise<{ ok: true }> {
+  const bridge = assertDesktopBridge();
+  if (!bridge.system.openThreadWindow) {
+    throw new Error("当前运行环境不支持评论独立窗口。");
+  }
+  return bridge.system.openThreadWindow(payload);
 }
 
 export async function importAppData(

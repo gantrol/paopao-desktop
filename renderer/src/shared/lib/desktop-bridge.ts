@@ -23,6 +23,7 @@ export interface DesktopBridge {
     create: (payload?: Partial<ChatRecord>) => Promise<ChatRecord>;
     clear: (conversationId: string) => Promise<ChatRecord>;
     updateMeta: (payload: Record<string, unknown>) => Promise<ChatRecord>;
+    onChanged?: (listener: (record: ChatRecord) => void) => () => void;
   };
   messages: {
     send: (payload: Record<string, unknown>) => Promise<ChatRecord>;
@@ -101,6 +102,12 @@ export interface DesktopBridge {
     }>;
     exportData: () => Promise<Record<string, unknown>>;
     importData?: (payload: Record<string, unknown>) => Promise<{ ok: true }>;
+    openThreadWindow?: (payload: {
+      conversationId: string;
+      messageId: string;
+      blockId?: string;
+      origin?: "chat" | "sorting";
+    }) => Promise<{ ok: true }>;
   };
 }
 

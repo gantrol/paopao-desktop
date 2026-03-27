@@ -706,6 +706,20 @@ class AiService {
     this.emitMachineRunStreamEvent = typeof options.emitMachineRunStreamEvent === 'function'
       ? options.emitMachineRunStreamEvent
       : () => {};
+    this.emitConversationChanged = typeof options.emitConversationChanged === 'function'
+      ? options.emitConversationChanged
+      : () => {};
+  }
+
+  notifyConversationChanged(conversation) {
+    if (!conversation || typeof conversation !== 'object') return;
+    this.emitConversationChanged(conversation);
+  }
+
+  notifyConversationChangedById(conversationId) {
+    const conversation = this.store.getConversation(conversationId);
+    if (!conversation) return;
+    this.notifyConversationChanged(conversation);
   }
 
   async runRefine(body) {
@@ -1312,12 +1326,13 @@ class AiService {
         messageId: placeholder.id,
       });
 
-      await this.store.commentMessage({
+      const updatedConversation = await this.store.commentMessage({
         conversationId,
         messageId: sourceMessageId,
         targetBlockId,
         message: finalMessage,
       });
+      this.notifyConversationChanged(updatedConversation);
 
       this.store.completeAiRun(runId, {
         status: 'done',
@@ -1624,12 +1639,13 @@ class AiService {
           messageId: placeholder.id,
         });
 
-        await this.store.commentMessage({
+        const updatedConversation = await this.store.commentMessage({
           conversationId,
           messageId: sourceMessageId,
           targetBlockId,
           message: finalMessage,
         });
+        this.notifyConversationChanged(updatedConversation);
 
         this.store.completeAiRun(runId, {
           status: 'done',
@@ -2014,6 +2030,7 @@ class AiService {
     });
 
     if (replyMessages.length === 0) {
+      this.notifyConversationChangedById(conversationId);
       return {
         conversation: this.store.getConversation(conversationId) || initialConversation,
         results,
@@ -2037,8 +2054,11 @@ class AiService {
     const stampedReplies = stampRepliesForInsertion(replyMessages, nextConversation.messages, insertionIndex);
     nextConversation.messages.splice(insertionIndex, 0, ...stampedReplies);
 
+    const updatedConversation = this.store.upsertConversation(nextConversation);
+    this.notifyConversationChanged(updatedConversation);
+
     return {
-      conversation: this.store.upsertConversation(nextConversation),
+      conversation: updatedConversation,
       results,
     };
   }

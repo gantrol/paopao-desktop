@@ -53,7 +53,7 @@ interface ThreadPaneProps {
   onSendReply: () => void;
   onHandleThreadFiles: (files: File[]) => void | Promise<void>;
   onFocusComposer: () => void;
-  presentation?: 'pane' | 'dialog';
+  presentation?: 'pane' | 'dialog' | 'window';
   onOpenDialog?: () => void;
 }
 
@@ -297,12 +297,13 @@ export function ThreadPane({
 }: ThreadPaneProps) {
   const threadHeading = threadTitle?.trim() || null;
   const isDialog = presentation === 'dialog';
+  const isWindow = presentation === 'window';
 
-  if (isDialog) {
+  if (isDialog || isWindow) {
     if (threadMsgId === null) return null;
 
     return (
-      <div className="pane thread-pane thread-pane--dialog">
+      <div className={`pane thread-pane ${isDialog ? 'thread-pane--dialog' : 'thread-pane--window'}`}>
         <div className="thread-header">
           <div className="nav-left-actions">
             <button type="button" className="nav-back-btn thread-back-btn" onClick={onBackToChat} aria-label="返回">
@@ -314,7 +315,7 @@ export function ThreadPane({
             </div>
           </div>
           <div className="nav-right-actions">
-            <button type="button" className="thread-close-btn" onClick={onClose} aria-label="关闭评论弹窗">
+            <button type="button" className="thread-close-btn" onClick={onClose} aria-label={isWindow ? '关闭评论窗口' : '关闭评论弹窗'}>
               ×
             </button>
           </div>
