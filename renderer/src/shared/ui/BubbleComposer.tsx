@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type MutableRefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { CompoundBubbleIcon } from '@/shared/icons/AvatarIcons';
 import {
   ArrowDownIcon,
@@ -509,87 +510,103 @@ export function BubbleComposer({
     handleAddTextBlock();
   }, [disabled, handleAddTextBlock, isMobile]);
 
-  return (
-    <div className={cn('bubble-composer', disabled && 'is-disabled')}>
-      {hasExpandedSurface ? (
-        <div className={cn('bubble-composer-surface', isBlocksFullscreen && 'is-fullscreen')}>
-          {supplementaryBlocks.length > 0 ? (
-            <div className="bubble-composer-surface__head">
-              <div className="bubble-composer-surface__title-wrap">
-                <span className="bubble-composer-surface__eyebrow">内容块</span>
-                <strong className="bubble-composer-surface__title">{supplementaryBlocks.length} 块</strong>
-              </div>
-              <div className="bubble-composer-surface__actions">
-                <button
-                  type="button"
-                  className="bubble-composer-surface__action"
-                  onClick={() => setIsBlocksFullscreen((prev) => !prev)}
-                  aria-label={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
-                  title={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
-                >
-                  {isBlocksFullscreen ? <MinimizeIcon size={14} /> : <ExpandIcon size={14} />}
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {editBanner ? (
-            <div className="bubble-composer-banner">
-              <div className="bubble-composer-banner__copy">
-                <span className="bubble-composer-banner__label">编辑中</span>
-                <strong>{editBanner.title}</strong>
-              </div>
-              <button
-                type="button"
-                className="bubble-composer-banner__cancel"
-                onClick={editBanner.onCancel}
-                aria-label="取消编辑"
-                title="取消编辑"
-              >
-                <XIcon size={14} />
-              </button>
-            </div>
-          ) : null}
-
-          {draft.forwardSource?.targetMessageId ? (
-            <ComposerSourceChip source={draft.forwardSource} label="转发来源" onClear={onCancelForward} />
-          ) : null}
-          {draft.quoteSource?.targetMessageId ? (
-            <ComposerSourceChip source={draft.quoteSource} label="引用来源" onClear={onCancelQuote} />
-          ) : null}
-
-          {supplementaryBlocks.length > 0 ? (
-            <div className="bubble-composer-blocks">
-              {supplementaryBlocks.map(({ block }, index) => (
-                <BubbleDraftBlockCard
-                  key={block.id}
-                  block={block}
-                  index={index}
-                  total={supplementaryBlocks.length}
-                  disabled={disabled}
-                  canSend={canSend}
-                  onSend={showSendButton ? onSend : undefined}
-                  onChange={(patch) => mutateBlocks((current) => current.map((item) => (
-                    item.id === block.id
-                      ? {
-                          ...item,
-                          ...patch,
-                        }
-                      : item
-                  )))}
-                  onMove={(delta) => mutateBlocks((current) => moveBlock(current, block.id, delta))}
-                  onRemove={() => mutateBlocks((current) => current.filter((item) => item.id !== block.id))}
-                  onFsOpen={onFsOpen}
-                  onAttachmentOpen={onAttachmentOpen}
-                  showDesktopQuickActions={!isMobile}
-                  onOpenPhotoPicker={onOpenPhotoPicker}
-                  onOpenFilePicker={onOpenFilePicker}
-                  onAddLinkBlock={handleAddLinkBlock}
-                />
-              ))}
-            </div>
-          ) : null}
+  const expandedSurface = hasExpandedSurface ? (
+    <div
+      className={cn('bubble-composer-surface', isBlocksFullscreen && 'is-fullscreen')}
+      role={isBlocksFullscreen ? 'dialog' : undefined}
+      aria-modal={isBlocksFullscreen || undefined}
+      aria-label={isBlocksFullscreen ? '全屏内容块编辑器' : undefined}
+    >
+      {supplementaryBlocks.length > 0 ? (
+        <div className="bubble-composer-surface__head">
+          <div className="bubble-composer-surface__title-wrap">
+            <span className="bubble-composer-surface__eyebrow">内容块</span>
+            <strong className="bubble-composer-surface__title">{supplementaryBlocks.length} 块</strong>
+          </div>
+          <div className="bubble-composer-surface__actions">
+            <button
+              type="button"
+              className="bubble-composer-surface__action"
+              onClick={() => setIsBlocksFullscreen((prev) => !prev)}
+              aria-label={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
+              title={isBlocksFullscreen ? '退出全屏块编辑' : '全屏展开内容块'}
+            >
+              {isBlocksFullscreen ? <MinimizeIcon size={14} /> : <ExpandIcon size={14} />}
+            </button>
+          </div>
         </div>
       ) : null}
+      {editBanner ? (
+        <div className="bubble-composer-banner">
+          <div className="bubble-composer-banner__copy">
+            <span className="bubble-composer-banner__label">编辑中</span>
+            <strong>{editBanner.title}</strong>
+          </div>
+          <button
+            type="button"
+            className="bubble-composer-banner__cancel"
+            onClick={editBanner.onCancel}
+            aria-label="取消编辑"
+            title="取消编辑"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+      ) : null}
+
+      {draft.forwardSource?.targetMessageId ? (
+        <ComposerSourceChip source={draft.forwardSource} label="转发来源" onClear={onCancelForward} />
+      ) : null}
+      {draft.quoteSource?.targetMessageId ? (
+        <ComposerSourceChip source={draft.quoteSource} label="引用来源" onClear={onCancelQuote} />
+      ) : null}
+
+      {supplementaryBlocks.length > 0 ? (
+        <div className="bubble-composer-blocks">
+          {supplementaryBlocks.map(({ block }, index) => (
+            <BubbleDraftBlockCard
+              key={block.id}
+              block={block}
+              index={index}
+              total={supplementaryBlocks.length}
+              disabled={disabled}
+              canSend={canSend}
+              onSend={showSendButton ? onSend : undefined}
+              onChange={(patch) => mutateBlocks((current) => current.map((item) => (
+                item.id === block.id
+                  ? {
+                      ...item,
+                      ...patch,
+                    }
+                  : item
+              )))}
+              onMove={(delta) => mutateBlocks((current) => moveBlock(current, block.id, delta))}
+              onRemove={() => mutateBlocks((current) => current.filter((item) => item.id !== block.id))}
+              onFsOpen={onFsOpen}
+              onAttachmentOpen={onAttachmentOpen}
+              showDesktopQuickActions={!isMobile}
+              onOpenPhotoPicker={onOpenPhotoPicker}
+              onOpenFilePicker={onOpenFilePicker}
+              onAddLinkBlock={handleAddLinkBlock}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  ) : null;
+
+  const surface = expandedSurface && isBlocksFullscreen && typeof document !== 'undefined'
+    ? createPortal(
+      <div className="bubble-composer-fullscreen-layer">
+        {expandedSurface}
+      </div>,
+      document.body,
+    )
+    : expandedSurface;
+
+  return (
+    <div className={cn('bubble-composer', disabled && 'is-disabled')}>
+      {surface}
 
       <div className={cn('bubble-composer-bar', isExpanded && 'is-expanded')}>
         <button
