@@ -148,6 +148,12 @@ interface SourceSelectionState {
   sourceViewMode: SortingSourceViewMode;
 }
 
+const EMPTY_SOURCE_SELECTION: SourceSelectionState = {
+  selectedSourceIds: [],
+  focusedSourceId: null,
+  sourceViewMode: 'focused',
+};
+
 interface PendingSourceSelectionState {
   boxId: string | null;
   selection: SourceSelectionState;
@@ -486,8 +492,17 @@ export function SortingWorkbench({
   ]);
 
   const sanitizeSourceIds = useCallback((candidateIds: string[]) => {
+    const normalizedIds = [...new Set(
+      candidateIds
+        .filter((id) => typeof id === 'string')
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )];
+    if (streams.length === 0) {
+      return normalizedIds;
+    }
     const available = new Set(streams.map((stream) => stream.id));
-    return [...new Set(candidateIds.filter((id) => available.has(id)))];
+    return normalizedIds.filter((id) => available.has(id));
   }, [streams]);
 
   const sanitizeSourceSelection = useCallback((candidate: Partial<SourceSelectionState>): SourceSelectionState => {
@@ -1876,17 +1891,22 @@ export function SortingWorkbench({
   }, [activeBox, boxes, showToast, updateWorkspace]);
 
   const handleSelectBox = useCallback((boxId: string) => {
-    const cachedSelection = boxSourceSelectionCacheRef.current.get(boxId);
+    const nextSelection = sanitizeSourceSelection(
+      boxSourceSelectionCacheRef.current.get(boxId) || EMPTY_SOURCE_SELECTION,
+    );
 
     setActiveBoxId(boxId);
     setSelectedLayerIds([]);
     setCurrentLayerId(null);
+    applyLocalSourceSelection(nextSelection);
 
-    if (cachedSelection) {
-      applyLocalSourceSelection(sanitizeSourceSelection(cachedSelection));
-    }
-
-    void saveWorkspace({ activeBoxId: boxId });
+    void saveWorkspace({
+      activeBoxId: boxId,
+      selectedSourceIds: nextSelection.selectedSourceIds,
+      focusedSourceId: nextSelection.focusedSourceId,
+      sourceViewMode: nextSelection.sourceViewMode,
+      sourceSelectionBoxId: boxId,
+    });
   }, [applyLocalSourceSelection, sanitizeSourceSelection, saveWorkspace]);
 
   const handleOpenRootBox = useCallback(() => {

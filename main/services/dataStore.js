@@ -5740,38 +5740,43 @@ class LocalDataStore {
     let nextBoxSourceSelections = normalizeSortingBoxSourceSelectionsMap(
       currentMetadata.boxSourceSelections,
     );
+    let patchedSourceSelection = null;
     if (hasSourceSelectionPatch && sourceSelectionBoxId) {
       const currentBoxSourceSelection = resolveSortingBoxSourceSelection(
         nextBoxSourceSelections,
         sourceSelectionBoxId,
         fallbackSourceSelection,
       );
+      patchedSourceSelection = normalizeSortingSourceSelection(
+        {
+          selectedSourceIds:
+            payload.selectedSourceIds !== undefined
+              ? payload.selectedSourceIds
+              : currentBoxSourceSelection.selectedSourceIds,
+          focusedSourceId:
+            payload.focusedSourceId !== undefined
+              ? payload.focusedSourceId
+              : currentBoxSourceSelection.focusedSourceId,
+          sourceViewMode:
+            payload.sourceViewMode !== undefined
+              ? payload.sourceViewMode
+              : currentBoxSourceSelection.sourceViewMode,
+        },
+        currentBoxSourceSelection.selectedSourceIds,
+      );
       nextBoxSourceSelections = {
         ...nextBoxSourceSelections,
-        [sourceSelectionBoxId]: normalizeSortingSourceSelection(
-          {
-            selectedSourceIds:
-              payload.selectedSourceIds !== undefined
-                ? payload.selectedSourceIds
-                : currentBoxSourceSelection.selectedSourceIds,
-            focusedSourceId:
-              payload.focusedSourceId !== undefined
-                ? payload.focusedSourceId
-                : currentBoxSourceSelection.focusedSourceId,
-            sourceViewMode:
-              payload.sourceViewMode !== undefined
-                ? payload.sourceViewMode
-                : currentBoxSourceSelection.sourceViewMode,
-          },
-          currentBoxSourceSelection.selectedSourceIds,
-        ),
+        [sourceSelectionBoxId]: patchedSourceSelection,
       };
     }
-    const activeBoxSourceSelection = resolveSortingBoxSourceSelection(
-      nextBoxSourceSelections,
-      nextActiveBoxId,
-      fallbackSourceSelection,
-    );
+    const activeBoxSourceSelection =
+      patchedSourceSelection && sourceSelectionBoxId === nextActiveBoxId
+        ? patchedSourceSelection
+        : resolveSortingBoxSourceSelection(
+            nextBoxSourceSelections,
+            nextActiveBoxId,
+            fallbackSourceSelection,
+          );
     const metadata = normalizeSortingWorkspaceMetadata(
       {
         ...currentMetadata,
