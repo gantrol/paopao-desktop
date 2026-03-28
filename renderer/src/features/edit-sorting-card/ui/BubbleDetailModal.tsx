@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import {
   normalizeBubbleBlocks,
   type BubbleDraftSource,
@@ -6,6 +14,7 @@ import {
 } from '@/entities/message';
 import { BubbleComposer } from '@/shared/ui/BubbleComposer';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
+import { InlineSearchControl } from '@/shared/ui/InlineSearchControl';
 import { uploadFile } from '@/shared/lib/upload';
 import { EditIcon, EyeIcon, XIcon } from '@/shared/icons/SortingIcons';
 import type { SortingBubbleDraft } from './types';
@@ -44,8 +53,18 @@ export function SortingBubbleDetailModal({
   title,
   editable,
   draft,
+  searchQuery = '',
+  searchOpen = false,
+  searchPanelOpen = false,
+  searchInputRef,
+  searchResultsView,
   onClose,
   onRequestEdit,
+  onToggleSearch,
+  onSearchQueryChange,
+  onSearchInputFocus,
+  onSearchInputKeyDown,
+  onClearSearch,
   onError,
   onSave,
 }: {
@@ -57,8 +76,18 @@ export function SortingBubbleDetailModal({
   title?: string | null;
   editable: boolean;
   draft: SortingBubbleDraft | null;
+  searchQuery?: string;
+  searchOpen?: boolean;
+  searchPanelOpen?: boolean;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
+  searchResultsView?: ReactNode;
   onClose: () => void;
   onRequestEdit?: () => void;
+  onToggleSearch?: () => void;
+  onSearchQueryChange?: (value: string) => void;
+  onSearchInputFocus?: () => void;
+  onSearchInputKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onClearSearch?: () => void;
   onError?: (message: string) => void;
   onSave?: (draft: SortingBubbleDraft) => void;
 }) {
@@ -74,12 +103,13 @@ export function SortingBubbleDetailModal({
     if (!open) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      if (searchOpen) return;
       event.preventDefault();
       onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, open]);
+  }, [onClose, open, searchOpen]);
 
   const previewMessage = useMemo(() => {
     if (mode === 'edit' && localDraft) {
@@ -98,6 +128,23 @@ export function SortingBubbleDetailModal({
   ) || buildBubblePreviewTitle(previewMessage.type === 'text'
     ? String(previewMessage.content || '')
     : sourceLabel || '泡泡详情');
+  const searchControl = mode === 'view' && onToggleSearch && onSearchQueryChange && onSearchInputKeyDown && onClearSearch && searchInputRef ? (
+    <InlineSearchControl
+      open={searchOpen}
+      panelOpen={searchPanelOpen}
+      query={searchQuery}
+      placeholder="搜当前分箱页"
+      buttonLabel="搜索当前分箱页"
+      className="inline-search--detail"
+      inputRef={searchInputRef}
+      resultsView={searchResultsView}
+      onToggle={onToggleSearch}
+      onQueryChange={onSearchQueryChange}
+      onInputFocus={onSearchInputFocus}
+      onInputKeyDown={onSearchInputKeyDown}
+      onClear={onClearSearch}
+    />
+  ) : null;
 
   if (!open) return null;
 
@@ -115,6 +162,7 @@ export function SortingBubbleDetailModal({
             </div>
           </div>
           <div className="s-detail-head-actions">
+            {searchControl}
             {editable && mode === 'view' && onRequestEdit ? (
               <button type="button" className="s-button--ghost s-button--icon" onClick={onRequestEdit} aria-label="编辑泡泡" title="编辑泡泡">
                 <EditIcon size={14} />

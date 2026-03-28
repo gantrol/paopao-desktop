@@ -2,7 +2,9 @@ import type {
   ChangeEvent as ReactChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
   DragEvent as ReactDragEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
+  ReactNode,
   RefObject,
   TouchEvent as ReactTouchEvent,
 } from 'react';
@@ -20,6 +22,8 @@ import { type ChatChannel } from '@/entities/conversation';
 import type { MessageData } from '@/entities/message';
 import { isMessageStreaming } from '@/shared/lib/message';
 import { renderChannelAvatar } from '@/shared/ui/StreamAvatar';
+import { InlineSearchControl } from '@/shared/ui/InlineSearchControl';
+import { CompactListSearch } from '@/shared/ui/CompactListSearch';
 import {
   formatConversationListTime,
   getConversationDividerLabel,
@@ -37,10 +41,12 @@ interface StreamListPaneProps {
   rows: StreamListRow[];
   listViewMode: ListViewMode;
   foldedChannelCount: number;
+  listSearchQuery: string;
   selectedChatId: string;
   isCollapsed: boolean;
   limit: PaneLimit;
   onCreateConversation: () => void;
+  onListSearchQueryChange: (value: string) => void;
   onSelectChannel: (channelId: string) => void;
   onOpenChannelSettings: (channelId: string) => void;
   onToggleListCollapsed: (next: boolean) => void;
@@ -54,7 +60,13 @@ interface StreamConversationPaneProps {
   isCurrentConversationDirect: boolean;
   sortedMessages: MessageData[];
   highlightedMsg: string | null;
+  highlightedTitle: boolean;
   currentDraft: DraftState;
+  searchQuery: string;
+  searchOpen: boolean;
+  searchPanelOpen: boolean;
+  searchInputRef: RefObject<HTMLInputElement | null>;
+  searchResultsView?: ReactNode;
   composerEditBanner?: { title: string; onCancel: () => void } | null;
   navStackDepth: number;
   mobileView: MobileView;
@@ -66,6 +78,11 @@ interface StreamConversationPaneProps {
   onBackToList: () => void;
   onOpenCurrentChannelSettings: () => void;
   onMessageAreaScroll: () => void;
+  onToggleSearch: () => void;
+  onSearchQueryChange: (value: string) => void;
+  onSearchInputFocus: () => void;
+  onSearchInputKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onClearSearch: () => void;
   onJumpToMsg: (targetId: string, blockId?: string) => void;
   onOpenFullscreen: (src: string, type: 'img' | 'video') => void;
   onOpenAttachment: (src: string) => void | Promise<void>;
@@ -146,10 +163,12 @@ function StreamListPane({
   rows,
   listViewMode,
   foldedChannelCount,
+  listSearchQuery,
   selectedChatId,
   isCollapsed,
   limit,
   onCreateConversation,
+  onListSearchQueryChange,
   onSelectChannel,
   onOpenChannelSettings,
   onToggleListCollapsed,
@@ -238,6 +257,12 @@ function StreamListPane({
                 </div>
                 <div className="nav-title">泡泡流</div>
                 <div className="nav-right-actions">
+                  <CompactListSearch
+                    value={listSearchQuery}
+                    placeholder="搜泡泡流标题或预览"
+                    buttonLabel="筛选泡泡流"
+                    onChange={onListSearchQueryChange}
+                  />
                   <button type="button" className="stream-list-toggle nav-icon desktop-only" onClick={() => onToggleListCollapsed(true)} title="折叠会话列表" aria-label="折叠会话列表">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="m15 18-6-6 6-6" />
@@ -248,7 +273,9 @@ function StreamListPane({
               <div className="list-content-area">
                 {rows.length === 0 ? (
                   <div className="rounded-[20px] border border-dashed border-black/8 bg-black/[0.015] px-4 py-5 text-center text-sm text-[var(--text-secondary)]">
-                    {listViewMode === 'folded' ? '还没有主动折叠的泡泡流' : '点击左上角 + 创建新的泡泡流'}
+                    {listSearchQuery.trim()
+                      ? '没有匹配的泡泡流'
+                      : (listViewMode === 'folded' ? '还没有主动折叠的泡泡流' : '点击左上角 + 创建新的泡泡流')}
                   </div>
                 ) : rows.map((row) => {
                   if (row.type === 'folded-entry') {
@@ -393,7 +420,13 @@ const StreamConversationPane = memo(function StreamConversationPane({
   isCurrentConversationDirect,
   sortedMessages,
   highlightedMsg,
+  highlightedTitle,
   currentDraft,
+  searchQuery,
+  searchOpen,
+  searchPanelOpen,
+  searchInputRef,
+  searchResultsView,
   composerEditBanner,
   navStackDepth,
   mobileView,
@@ -405,6 +438,11 @@ const StreamConversationPane = memo(function StreamConversationPane({
   onBackToList,
   onOpenCurrentChannelSettings,
   onMessageAreaScroll,
+  onToggleSearch,
+  onSearchQueryChange,
+  onSearchInputFocus,
+  onSearchInputKeyDown,
+  onClearSearch,
   onJumpToMsg,
   onOpenFullscreen,
   onOpenAttachment,
@@ -446,8 +484,23 @@ const StreamConversationPane = memo(function StreamConversationPane({
             <img src={publicIcon('nav_back.svg')} className="nav-icon" alt="back" />
           </div>
         </div>
-        <div className="nav-title">{currentChannel?.title || '新泡泡流'}</div>
+        <div className={`nav-title ${highlightedTitle ? 'is-highlighted' : ''}`}>{currentChannel?.title || '新泡泡流'}</div>
         <div className="nav-right-actions">
+          <InlineSearchControl
+            open={searchOpen}
+            panelOpen={searchPanelOpen}
+            query={searchQuery}
+            placeholder="搜当前泡泡流"
+            buttonLabel="搜索当前泡泡流"
+            className="inline-search--nav"
+            inputRef={searchInputRef}
+            resultsView={searchResultsView}
+            onToggle={onToggleSearch}
+            onQueryChange={onSearchQueryChange}
+            onInputFocus={onSearchInputFocus}
+            onInputKeyDown={onSearchInputKeyDown}
+            onClear={onClearSearch}
+          />
           <div className="nav-icon" onClick={onOpenCurrentChannelSettings}>
             <img src={publicIcon('nav_more.svg')} alt="more" />
           </div>

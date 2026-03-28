@@ -16,6 +16,8 @@ function SortingKanbanView({
   expandedBubbleIds,
   editingBubbleId,
   editingBubbleDraft,
+  highlightedColumnId,
+  highlightedItemId,
   editingColId,
   editingColName,
   editColRef,
@@ -48,6 +50,8 @@ function SortingKanbanView({
   expandedBubbleIds: Set<string>;
   editingBubbleId: string | null;
   editingBubbleDraft: SortingBubbleDraft | null;
+  highlightedColumnId?: string | null;
+  highlightedItemId?: string | null;
   editingColId: string | null;
   editingColName: string;
   editColRef: RefObject<HTMLInputElement | null>;
@@ -108,6 +112,8 @@ function SortingKanbanView({
                   expandedBubbleIds={expandedBubbleIds}
                   editingBubbleId={editingBubbleId}
                   editingBubbleDraft={editingBubbleDraft}
+                  highlightedColumnId={highlightedColumnId}
+                  highlightedItemId={highlightedItemId}
                   editingColId={editingColId}
                   editingColName={editingColName}
                   editColRef={editColRef}
@@ -149,6 +155,8 @@ function SortingKanbanView({
               expandedBubbleIds={expandedBubbleIds}
               editingBubbleId={editingBubbleId}
               editingBubbleDraft={editingBubbleDraft}
+              highlightedColumnId={highlightedColumnId}
+              highlightedItemId={highlightedItemId}
               editingColId={editingColId}
               editingColName={editingColName}
               editColRef={editColRef}

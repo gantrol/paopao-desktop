@@ -18,6 +18,8 @@ function SortingBoardColumn({
   expandedBubbleIds,
   editingBubbleId,
   editingBubbleDraft,
+  highlightedColumnId,
+  highlightedItemId,
   editingColId,
   editingColName,
   editColRef,
@@ -46,6 +48,8 @@ function SortingBoardColumn({
   expandedBubbleIds: Set<string>;
   editingBubbleId: string | null;
   editingBubbleDraft: SortingBubbleDraft | null;
+  highlightedColumnId?: string | null;
+  highlightedItemId?: string | null;
   editingColId: string | null;
   editingColName: string;
   editColRef: RefObject<HTMLInputElement | null>;
@@ -90,7 +94,11 @@ function SortingBoardColumn({
 
   const columnContent = (
     <>
-      <div className="s-board-column-head" onContextMenu={(event) => onOpenColumnMenu(event, column.id)}>
+      <div
+        className={cx('s-board-column-head', highlightedColumnId === columnInstanceId && 'is-highlighted')}
+        onContextMenu={(event) => onOpenColumnMenu(event, column.id)}
+        data-sorting-column-id={columnInstanceId}
+      >
         <div className="s-board-column-title">
           {enableColumnReorder ? <GripIcon size={14} className="s-board-column-grip" /> : null}
           {columnNameField}
@@ -123,6 +131,7 @@ function SortingBoardColumn({
                           boxes={boxes}
                           sourceInfo={sourceInfoMap[item.id] || null}
                           isDragging={itemSnapshot.isDragging}
+                          isHighlighted={highlightedItemId === item.id}
                           isDimmed={Boolean(currentLayerId && itemLayerId && currentLayerId !== itemLayerId)}
                           enableOverflowCollapse
                           isOverflowExpanded={expandedBubbleIds.has(item.id)}
@@ -181,7 +190,11 @@ function SortingBoardColumn({
       {(columnProvided, columnSnapshot) => {
         const columnNode = (
           <div className={cx('s-board-column', columnSnapshot.isDragging && 'is-dragging')} ref={columnProvided.innerRef} {...columnProvided.draggableProps}>
-            <div className="s-board-column-head" onContextMenu={(event) => onOpenColumnMenu(event, column.id)}>
+            <div
+              className={cx('s-board-column-head', highlightedColumnId === columnInstanceId && 'is-highlighted')}
+              onContextMenu={(event) => onOpenColumnMenu(event, column.id)}
+              data-sorting-column-id={columnInstanceId}
+            >
               <div className="s-board-column-title" {...columnProvided.dragHandleProps}>
                 <GripIcon size={14} className="s-board-column-grip" />
                 {columnNameField}
@@ -214,6 +227,7 @@ function SortingBoardColumn({
                                 boxes={boxes}
                                 sourceInfo={sourceInfoMap[item.id] || null}
                                 isDragging={itemSnapshot.isDragging}
+                                isHighlighted={highlightedItemId === item.id}
                                 isDimmed={Boolean(currentLayerId && itemLayerId && currentLayerId !== itemLayerId)}
                                 enableOverflowCollapse
                                 isOverflowExpanded={expandedBubbleIds.has(item.id)}

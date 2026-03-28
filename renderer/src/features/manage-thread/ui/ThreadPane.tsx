@@ -1,7 +1,11 @@
 import {
   memo,
+  useEffect,
   useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   type RefObject,
   type TouchEvent as ReactTouchEvent,
 } from 'react';
@@ -9,6 +13,7 @@ import { BubbleComposer } from '@/shared/ui/BubbleComposer';
 import { BubbleItem } from '@/shared/ui/BubbleItem';
 import { ExpandIcon } from '@/shared/icons/SortingIcons';
 import { ResizeHandle } from '@/shared/ui/ResizeHandle';
+import { InlineSearchControl } from '@/shared/ui/InlineSearchControl';
 import type { PaneLimit } from '@/shared/hooks/useBoundedPaneSize';
 import { AI_AVATAR } from '@/shared/config/avatar';
 import { getMessageAvatarSrc } from '@/shared/lib/avatar';
@@ -22,6 +27,12 @@ interface ThreadPaneProps {
   threadBlockId?: string;
   threadMsg: MessageData | null;
   threadReplies: MessageData[];
+  highlightedReplyMessageId?: string | null;
+  searchQuery?: string;
+  searchOpen?: boolean;
+  searchPanelOpen?: boolean;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
+  searchResultsView?: ReactNode;
   isCollapsed: boolean;
   limit: PaneLimit;
   currentUserAvatar: string;
@@ -40,6 +51,11 @@ interface ThreadPaneProps {
   onBackToChat: () => void;
   onClose: () => void;
   onExpand: () => void;
+  onToggleSearch?: () => void;
+  onSearchQueryChange?: (value: string) => void;
+  onSearchInputFocus?: () => void;
+  onSearchInputKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onClearSearch?: () => void;
   onJumpToMsg: (targetId: string, blockId?: string) => void;
   onOpenThread: (messageId: string, blockId?: string) => void;
   onToggleLike: (messageId: string, blockId?: string) => void;
@@ -78,6 +94,7 @@ function ThreadEntry({
   avatarSrc,
   senderName,
   highlightedMsg,
+  highlightedReplyMessageId,
   replyCountByMessageId,
   replyCountByMessageBlockId,
   onJumpToMsg,
@@ -94,6 +111,7 @@ function ThreadEntry({
   avatarSrc: string;
   senderName: string;
   highlightedMsg?: string | null;
+  highlightedReplyMessageId?: string | null;
   replyCountByMessageId: Record<string, number>;
   replyCountByMessageBlockId: Record<string, number>;
   onJumpToMsg: (targetId: string, blockId?: string) => void;
@@ -107,7 +125,10 @@ function ThreadEntry({
   onContextMenu: (event: ReactMouseEvent, msg: MessageData, blockId?: string, subIndex?: number) => void;
 }) {
   return (
-    <div className="thread-comment-item">
+    <div
+      className={`thread-comment-item ${highlightedReplyMessageId === message.id ? 'is-highlighted' : ''}`}
+      data-thread-reply-id={message.id}
+    >
       <img src={avatarSrc} className="thread-avatar" alt="Avatar" />
       <div className="thread-content">
         <div className="thread-name">{senderName}</div>
@@ -138,6 +159,7 @@ interface ThreadEntriesPaneProps {
   threadMsg: MessageData | null;
   threadReplies: MessageData[];
   threadBlockId?: string;
+  highlightedReplyMessageId?: string | null;
   currentUserAvatar: string;
   currentChannelAvatarUrl: string;
   isCurrentConversationDirect: boolean;
@@ -158,6 +180,7 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
   threadMsg,
   threadReplies,
   threadBlockId,
+  highlightedReplyMessageId,
   currentUserAvatar,
   currentChannelAvatarUrl,
   isCurrentConversationDirect,
@@ -173,6 +196,7 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
   onTouchEnd,
   onContextMenu,
 }: ThreadEntriesPaneProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const replyCountByMessageIdMap = useMemo(
     () => groupReplyCountByMessageBlock(replyCountByMessageBlockId),
     [replyCountByMessageBlockId],
@@ -191,6 +215,7 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
           })}
           senderName={threadMsg.role === 'me' ? '原泡泡 · 我' : `原泡泡 · ${threadMsg.senderName || '助手'}`}
           highlightedMsg={threadBlockId ? `${threadMsg.id}:${threadBlockId}` : threadMsg.id}
+          highlightedReplyMessageId={highlightedReplyMessageId}
           replyCountByMessageId={replyCountByMessageId}
           replyCountByMessageBlockId={replyCountByMessageIdMap[threadMsg.id] || {}}
           onJumpToMsg={onJumpToMsg}
@@ -214,6 +239,7 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
               forceConversationAvatar: isCurrentConversationDirect,
             })}
             senderName={reply.role === 'me' ? '我' : (reply.senderName || '助手')}
+            highlightedReplyMessageId={highlightedReplyMessageId}
             replyCountByMessageId={replyCountByMessageId}
             replyCountByMessageBlockId={replyCountByMessageIdMap[reply.id] || {}}
             onJumpToMsg={onJumpToMsg}
@@ -249,8 +275,18 @@ const ThreadEntriesPane = memo(function ThreadEntriesPane({
     threadReplies,
   ]);
 
+  useEffect(() => {
+    if (!highlightedReplyMessageId) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const selector = `[data-thread-reply-id="${highlightedReplyMessageId}"]`;
+    const target = container.querySelector<HTMLElement>(selector);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [highlightedReplyMessageId, threadReplies]);
+
   return (
-    <div className="thread-scroll">
+    <div className="thread-scroll" ref={scrollRef}>
       {threadEntries}
     </div>
   );
@@ -261,6 +297,12 @@ export function ThreadPane({
   threadBlockId,
   threadMsg,
   threadReplies,
+  highlightedReplyMessageId,
+  searchQuery = '',
+  searchOpen = false,
+  searchPanelOpen = false,
+  searchInputRef,
+  searchResultsView,
   isCollapsed,
   limit,
   currentUserAvatar,
@@ -279,6 +321,11 @@ export function ThreadPane({
   onBackToChat,
   onClose,
   onExpand,
+  onToggleSearch,
+  onSearchQueryChange,
+  onSearchInputFocus,
+  onSearchInputKeyDown,
+  onClearSearch,
   onJumpToMsg,
   onOpenThread,
   onToggleLike,
@@ -298,6 +345,23 @@ export function ThreadPane({
   const threadHeading = threadTitle?.trim() || null;
   const isDialog = presentation === 'dialog';
   const isWindow = presentation === 'window';
+  const searchControl = onToggleSearch && onSearchQueryChange && onSearchInputKeyDown && onClearSearch && searchInputRef ? (
+    <InlineSearchControl
+      open={searchOpen}
+      panelOpen={searchPanelOpen}
+      query={searchQuery}
+      placeholder="搜当前详情页"
+      buttonLabel="搜索当前详情页"
+      className="inline-search--thread"
+      inputRef={searchInputRef}
+      resultsView={searchResultsView}
+      onToggle={onToggleSearch}
+      onQueryChange={onSearchQueryChange}
+      onInputFocus={onSearchInputFocus}
+      onInputKeyDown={onSearchInputKeyDown}
+      onClear={onClearSearch}
+    />
+  ) : null;
 
   if (isDialog || isWindow) {
     if (threadMsgId === null) return null;
@@ -315,6 +379,7 @@ export function ThreadPane({
             </div>
           </div>
           <div className="nav-right-actions">
+            {searchControl}
             <button type="button" className="thread-close-btn" onClick={onClose} aria-label={isWindow ? '关闭评论窗口' : '关闭评论弹窗'}>
               ×
             </button>
@@ -324,6 +389,7 @@ export function ThreadPane({
           threadMsg={threadMsg}
           threadReplies={threadReplies}
           threadBlockId={threadBlockId}
+          highlightedReplyMessageId={highlightedReplyMessageId}
           currentUserAvatar={currentUserAvatar}
           currentChannelAvatarUrl={currentChannelAvatarUrl}
           isCurrentConversationDirect={isCurrentConversationDirect}
@@ -375,6 +441,7 @@ export function ThreadPane({
           threadMsg={null}
           threadReplies={[]}
           threadBlockId={threadBlockId}
+          highlightedReplyMessageId={highlightedReplyMessageId}
           currentUserAvatar={currentUserAvatar}
           currentChannelAvatarUrl={currentChannelAvatarUrl}
           isCurrentConversationDirect={isCurrentConversationDirect}
@@ -439,6 +506,7 @@ export function ThreadPane({
                 </div>
               </div>
               <div className="nav-right-actions">
+                {searchControl}
                 {onOpenDialog ? (
                   <button
                     type="button"
@@ -457,6 +525,7 @@ export function ThreadPane({
               threadMsg={threadMsg}
               threadReplies={threadReplies}
               threadBlockId={threadBlockId}
+              highlightedReplyMessageId={highlightedReplyMessageId}
               currentUserAvatar={currentUserAvatar}
               currentChannelAvatarUrl={currentChannelAvatarUrl}
               isCurrentConversationDirect={isCurrentConversationDirect}

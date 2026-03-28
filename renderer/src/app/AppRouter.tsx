@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { extractContextMenuData } from "@/features/manage-thread/model/context-menu";
 import {
@@ -91,6 +92,19 @@ import { PrimaryTabBar } from "@/widgets/primary-tab-bar/ui/PrimaryTabBar";
 import { StreamPage } from "@/pages/stream/ui/StreamPage";
 import { SortingPage } from "@/pages/sorting/ui/SortingPage";
 import { FactoryPage } from "@/pages/factory/ui/FactoryPage";
+import {
+  compareSearchResults,
+  paginateSearchResults,
+  scoreSearchText,
+  type SearchRequest,
+  type SearchResult,
+  type SearchResponse,
+  type SearchScope,
+  searchChatResults,
+  type SortingSearchLocator,
+  type SortingSearchProvider,
+} from "@/shared/lib/search";
+import { SearchResultPanel } from "@/shared/ui/SearchResultPanel";
 
 const LIST_PANE_MIN = 240;
 const LIST_PANE_MAX = 420;
@@ -98,6 +112,8 @@ const LIST_PANE_COLLAPSED_WIDTH = 92;
 const THREAD_PANE_MIN = 260;
 const THREAD_PANE_MAX = 460;
 const THREAD_PANE_COLLAPSED_WIDTH = 92;
+const SEARCH_PAGE_SIZE = 20;
+const SEARCH_FETCH_LIMIT = 2000;
 
 type ActiveChatPane = "assistant" | "sorting" | "factory";
 type PrimaryTab = "chat" | "sorting" | "factory";
@@ -120,6 +136,13 @@ interface PendingJumpTarget {
   conversationId: string;
   messageId: string;
   blockId?: string;
+}
+
+interface PendingThreadReplyTarget {
+  conversationId: string;
+  messageId: string;
+  blockId?: string;
+  replyMessageId: string;
 }
 
 type WindowMode =
@@ -219,6 +242,7 @@ export default function AppRouter() {
   const [isThreadCollapsed, setIsThreadCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<PrimaryTab>("chat");
   const [listViewMode, setListViewMode] = useState<ListViewMode>("main");
+  const [listSearchQuery, setListSearchQuery] = useState("");
   const [channels, setChannels] = useState<ChatChannel[]>([]);
   const [userProfile, setUserProfile] = useState<UserProfileRecord>({
     avatarUrl: USER_AVATAR,
@@ -268,9 +292,32 @@ export default function AppRouter() {
     useState(false);
   const [pendingJumpTarget, setPendingJumpTarget] =
     useState<PendingJumpTarget | null>(null);
+  const [pendingThreadReplyTarget, setPendingThreadReplyTarget] =
+    useState<PendingThreadReplyTarget | null>(null);
   const [contextMenuSubmenu, setContextMenuSubmenu] = useState<
     "machines" | null
   >(null);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [globalSearchScope, setGlobalSearchScope] = useState<SearchScope>("all");
+  const [globalSearchResults, setGlobalSearchResults] = useState<SearchResult[]>([]);
+  const [globalSearchTotal, setGlobalSearchTotal] = useState(0);
+  const [globalSearchHasMore, setGlobalSearchHasMore] = useState(false);
+  const [globalSearchSelectedIndex, setGlobalSearchSelectedIndex] = useState(0);
+  const [isStreamSearchOpen, setIsStreamSearchOpen] = useState(false);
+  const [streamSearchQuery, setStreamSearchQuery] = useState("");
+  const [streamSearchResults, setStreamSearchResults] = useState<SearchResult[]>([]);
+  const [streamSearchTotal, setStreamSearchTotal] = useState(0);
+  const [streamSearchHasMore, setStreamSearchHasMore] = useState(false);
+  const [streamSearchSelectedIndex, setStreamSearchSelectedIndex] = useState(0);
+  const [isThreadSearchOpen, setIsThreadSearchOpen] = useState(false);
+  const [threadSearchQuery, setThreadSearchQuery] = useState("");
+  const [threadSearchResults, setThreadSearchResults] = useState<SearchResult[]>([]);
+  const [threadSearchTotal, setThreadSearchTotal] = useState(0);
+  const [threadSearchHasMore, setThreadSearchHasMore] = useState(false);
+  const [threadSearchSelectedIndex, setThreadSearchSelectedIndex] = useState(0);
+  const [highlightedThreadReplyId, setHighlightedThreadReplyId] = useState<string | null>(null);
+  const [highlightedConversationTitleId, setHighlightedConversationTitleId] = useState<string | null>(null);
 
   const listPane = useBoundedPaneSize({
     initial: 304,
@@ -287,6 +334,8 @@ export default function AppRouter() {
   const toastTimerRef = useRef<number | null>(null);
   const scrollPersistTimerRef = useRef<number | null>(null);
   const sortingSourceLocatorRef = useRef<SortingSourceLocator | null>(null);
+  const sortingSearchProviderRef = useRef<SortingSearchProvider | null>(null);
+  const sortingSearchLocatorRef = useRef<SortingSearchLocator | null>(null);
   const restoreConversationRef = useRef<string | null>(null);
   const skipNextConversationUiPersistRef = useRef(false);
   const previousMessageContextRef = useRef<{
@@ -295,6 +344,11 @@ export default function AppRouter() {
   }>({ conversationId: null, count: 0 });
   const mainEditRestoreRef = useRef<DraftState | null>(null);
   const threadEditRestoreRef = useRef<DraftState | null>(null);
+  const globalSearchInputRef = useRef<HTMLInputElement>(null);
+  const globalSearchRequestIdRef = useRef(0);
+  const streamSearchInputRef = useRef<HTMLInputElement>(null);
+  const threadSearchInputRef = useRef<HTMLInputElement>(null);
+  const threadSearchRequestIdRef = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadInputRef = useRef<HTMLTextAreaElement>(null);
   const fsVideoRef = useRef<HTMLVideoElement>(null);
@@ -456,12 +510,44 @@ export default function AppRouter() {
     [],
   );
 
+  const registerSortingSearchProvider = useCallback(
+    (provider: SortingSearchProvider | null) => {
+      sortingSearchProviderRef.current = provider;
+    },
+    [],
+  );
+
+  const registerSortingSearchLocator = useCallback(
+    (locator: SortingSearchLocator | null) => {
+      sortingSearchLocatorRef.current = locator;
+    },
+    [],
+  );
+
   const showToast = useCallback((message: string) => {
     setToastMsg(message);
     if (toastTimerRef.current) {
       window.clearTimeout(toastTimerRef.current);
     }
     toastTimerRef.current = window.setTimeout(() => setToastMsg(""), 2000);
+  }, []);
+
+  const highlightConversationTitle = useCallback((conversationId: string) => {
+    setHighlightedConversationTitleId(conversationId);
+    window.setTimeout(() => {
+      setHighlightedConversationTitleId((current) =>
+        current === conversationId ? null : current,
+      );
+    }, 1500);
+  }, []);
+
+  const highlightThreadReply = useCallback((replyMessageId: string) => {
+    setHighlightedThreadReplyId(replyMessageId);
+    window.setTimeout(() => {
+      setHighlightedThreadReplyId((current) =>
+        current === replyMessageId ? null : current,
+      );
+    }, 1500);
   }, []);
 
   const openThreadDialog = useCallback(async () => {
@@ -1059,9 +1145,27 @@ export default function AppRouter() {
     () => sortByRecent(activeChannels.filter((channel) => channel.isFolded)),
     [activeChannels],
   );
+  const searchableListChannels = useMemo(
+    () => [...mainChannels, ...foldedChannels],
+    [foldedChannels, mainChannels],
+  );
+  const filteredListChannels = useMemo(() => {
+    const query = listSearchQuery.trim();
+    if (!query) return searchableListChannels;
+    return searchableListChannels.filter((channel) => (
+      scoreSearchText(query, channel.title, "title") > 0
+      || scoreSearchText(query, channel.lastMsg || "", "content") > 0
+    ));
+  }, [listSearchQuery, searchableListChannels]);
   const listRows = useMemo<
     Array<{ type: "channel"; channel: ChatChannel } | { type: "folded-entry" }>
   >(() => {
+    if (listSearchQuery.trim()) {
+      return filteredListChannels.map((channel) => ({
+        type: "channel" as const,
+        channel,
+      }));
+    }
     if (listViewMode === "folded") {
       return [
         { type: "folded-entry" as const },
@@ -1080,7 +1184,7 @@ export default function AppRouter() {
       type: "folded-entry" as const,
     });
     return rows;
-  }, [foldedChannels, listViewMode, mainChannels]);
+  }, [filteredListChannels, foldedChannels, listSearchQuery, listViewMode, mainChannels]);
 
   const sortingStreams = useMemo(
     () =>
@@ -1091,6 +1195,144 @@ export default function AppRouter() {
       })),
     [activeChannels],
   );
+  const runSortingSearch = useCallback(
+    async (request: SearchRequest): Promise<SearchResponse> => {
+      const provider = sortingSearchProviderRef.current;
+      if (!provider) {
+        return { items: [], total: 0, hasMore: false };
+      }
+      return await provider(request);
+    },
+    [],
+  );
+  const performGlobalSearch = useCallback(
+    async (query: string, scope: SearchScope, offset = 0, append = false) => {
+      const requestId = globalSearchRequestIdRef.current + 1;
+      globalSearchRequestIdRef.current = requestId;
+      const normalizedQuery = query.trim();
+      if (!normalizedQuery) {
+        setGlobalSearchResults([]);
+        setGlobalSearchTotal(0);
+        setGlobalSearchHasMore(false);
+        setGlobalSearchSelectedIndex(0);
+        return;
+      }
+
+      const streamResults =
+        scope === "sorting"
+          ? []
+          : searchChatResults(activeChannels, {
+              query: normalizedQuery,
+              scope,
+              mode: "global",
+              offset: 0,
+              limit: SEARCH_FETCH_LIMIT,
+            }).items;
+      const sortingResults =
+        scope === "streams" || scope === "comments"
+          ? []
+          : (
+              await runSortingSearch({
+                query: normalizedQuery,
+                scope,
+                mode: "global",
+                offset: 0,
+                limit: SEARCH_FETCH_LIMIT,
+              })
+            ).items;
+      const mergedResults = [...streamResults, ...sortingResults].sort(
+        compareSearchResults,
+      );
+      if (globalSearchRequestIdRef.current !== requestId) return;
+      const nextPage = paginateSearchResults(
+        mergedResults,
+        offset,
+        SEARCH_PAGE_SIZE,
+      );
+      setGlobalSearchResults((current) =>
+        append ? [...current, ...nextPage.items] : nextPage.items,
+      );
+      setGlobalSearchTotal(nextPage.total);
+      setGlobalSearchHasMore(nextPage.hasMore);
+      if (!append) {
+        setGlobalSearchSelectedIndex(0);
+      }
+    },
+    [activeChannels, runSortingSearch],
+  );
+  const performStreamSearch = useCallback(
+    (query: string, offset = 0, append = false) => {
+      const normalizedQuery = query.trim();
+      if (!normalizedQuery || !currentChannel) {
+        setStreamSearchResults([]);
+        setStreamSearchTotal(0);
+        setStreamSearchHasMore(false);
+        setStreamSearchSelectedIndex(0);
+        return;
+      }
+
+      const nextPage = searchChatResults([currentChannel], {
+        query: normalizedQuery,
+        scope: "all",
+        mode: "local-stream",
+        offset,
+        limit: SEARCH_PAGE_SIZE,
+      });
+      setStreamSearchResults((current) =>
+        append ? [...current, ...nextPage.items] : nextPage.items,
+      );
+      setStreamSearchTotal(nextPage.total);
+      setStreamSearchHasMore(nextPage.hasMore);
+      if (!append) {
+        setStreamSearchSelectedIndex(0);
+      }
+    },
+    [currentChannel],
+  );
+  const performThreadSearch = useCallback(
+    async (query: string, offset = 0, append = false) => {
+      const requestId = threadSearchRequestIdRef.current + 1;
+      threadSearchRequestIdRef.current = requestId;
+      const normalizedQuery = query.trim();
+      if (!normalizedQuery) {
+        setThreadSearchResults([]);
+        setThreadSearchTotal(0);
+        setThreadSearchHasMore(false);
+        setThreadSearchSelectedIndex(0);
+        return;
+      }
+
+      let nextPage: SearchResponse;
+      if (threadOrigin === "sorting") {
+        nextPage = await runSortingSearch({
+          query: normalizedQuery,
+          scope: "all",
+          mode: "local-sorting",
+          offset,
+          limit: SEARCH_PAGE_SIZE,
+        });
+      } else {
+        nextPage = searchChatResults(threadConversation ? [threadConversation] : [], {
+          query: normalizedQuery,
+          scope: "all",
+          mode: "local-stream",
+          offset,
+          limit: SEARCH_PAGE_SIZE,
+        });
+      }
+
+      if (threadSearchRequestIdRef.current !== requestId) return;
+      setThreadSearchResults((current) =>
+        append ? [...current, ...nextPage.items] : nextPage.items,
+      );
+      setThreadSearchTotal(nextPage.total);
+      setThreadSearchHasMore(nextPage.hasMore);
+      if (!append) {
+        setThreadSearchSelectedIndex(0);
+      }
+    },
+    [runSortingSearch, threadConversation, threadOrigin],
+  );
   const contextMenuConversation = useMemo(
     () =>
       contextMenu.conversationId
@@ -1099,6 +1341,66 @@ export default function AppRouter() {
         : null,
     [channels, contextMenu.conversationId],
   );
+
+  useEffect(() => {
+    if (!isGlobalSearchOpen) return undefined;
+    const timer = window.setTimeout(() => {
+      void performGlobalSearch(globalSearchQuery, globalSearchScope);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [
+    globalSearchQuery,
+    globalSearchScope,
+    isGlobalSearchOpen,
+    performGlobalSearch,
+  ]);
+
+  useEffect(() => {
+    if (!isStreamSearchOpen || !streamSearchQuery.trim()) {
+      setStreamSearchResults([]);
+      setStreamSearchTotal(0);
+      setStreamSearchHasMore(false);
+      setStreamSearchSelectedIndex(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      performStreamSearch(streamSearchQuery);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [isStreamSearchOpen, performStreamSearch, streamSearchQuery]);
+
+  useEffect(() => {
+    if (!isThreadSearchOpen || !threadSearchQuery.trim()) {
+      setThreadSearchResults([]);
+      setThreadSearchTotal(0);
+      setThreadSearchHasMore(false);
+      setThreadSearchSelectedIndex(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      void performThreadSearch(threadSearchQuery);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [isThreadSearchOpen, performThreadSearch, threadSearchQuery]);
+
+  useEffect(() => {
+    setIsStreamSearchOpen(false);
+    setStreamSearchQuery("");
+    setStreamSearchResults([]);
+    setStreamSearchTotal(0);
+    setStreamSearchHasMore(false);
+    setStreamSearchSelectedIndex(0);
+  }, [currentChannel?.id]);
+
+  useEffect(() => {
+    threadSearchRequestIdRef.current += 1;
+    setIsThreadSearchOpen(false);
+    setThreadSearchQuery("");
+    setThreadSearchResults([]);
+    setThreadSearchTotal(0);
+    setThreadSearchHasMore(false);
+    setThreadSearchSelectedIndex(0);
+  }, [threadConversationId, threadMsgId, threadOrigin]);
   const contextMenuMessage = useMemo(
     () =>
       contextMenu.msgId && contextMenuConversation
@@ -1868,6 +2170,50 @@ export default function AppRouter() {
     [channels, scrollToMessage, showToast],
   );
 
+  const jumpToConversationMessage = useCallback(
+    (conversationId: string, messageId: string, blockId?: string) => {
+      if (
+        activeChat === "assistant" &&
+        currentChannel?.id === conversationId &&
+        scrollToMessage(messageId, blockId, { pushNav: true })
+      ) {
+        return;
+      }
+
+      setPendingJumpTarget({
+        conversationId,
+        messageId,
+        blockId,
+      });
+      setPendingThreadReplyTarget(null);
+      setThreadContext(null);
+      setIsThreadCollapsed(false);
+      setActiveTab("chat");
+      setActiveChat("assistant");
+      setMobileView("chat");
+      setSelectedChatId(conversationId);
+    },
+    [activeChat, currentChannel?.id, scrollToMessage],
+  );
+
+  const openThreadReplyTarget = useCallback(
+    (payload: PendingThreadReplyTarget, origin: ThreadOrigin = "chat") => {
+      setPendingThreadReplyTarget(payload);
+      setPendingJumpTarget(null);
+      setActiveTab(origin === "sorting" ? "sorting" : "chat");
+      setActiveChat(origin === "sorting" ? "sorting" : "assistant");
+      setMobileView(origin === "sorting" ? "sorting" : "chat");
+      setSelectedChatId(payload.conversationId);
+      openThreadPane({
+        origin,
+        conversationId: payload.conversationId,
+        messageId: payload.messageId,
+        blockId: payload.blockId,
+      });
+    },
+    [openThreadPane],
+  );
+
   useEffect(() => {
     if (!pendingJumpTarget) return undefined;
     if (currentChannel?.id !== pendingJumpTarget.conversationId)
@@ -1887,6 +2233,32 @@ export default function AppRouter() {
 
     return () => window.clearTimeout(timer);
   }, [currentChannel?.id, pendingJumpTarget, scrollToMessage, showToast]);
+
+  useEffect(() => {
+    if (!pendingThreadReplyTarget) return undefined;
+    if (threadConversationId !== pendingThreadReplyTarget.conversationId) {
+      return undefined;
+    }
+    if (threadMsgId !== pendingThreadReplyTarget.messageId) {
+      return undefined;
+    }
+    if (threadBlockId !== pendingThreadReplyTarget.blockId) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      highlightThreadReply(pendingThreadReplyTarget.replyMessageId);
+      setPendingThreadReplyTarget(null);
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    highlightThreadReply,
+    pendingThreadReplyTarget,
+    threadBlockId,
+    threadConversationId,
+    threadMsgId,
+  ]);
 
   const navBackMsg = useCallback(() => {
     if (navStack.length === 0 || !msgAreaRef.current) return;
@@ -2132,6 +2504,392 @@ export default function AppRouter() {
   const handleThreadReplySend = useCallback(() => {
     void sendThreadReply();
   }, [sendThreadReply]);
+  const closeGlobalSearch = useCallback(() => {
+    globalSearchRequestIdRef.current += 1;
+    setIsGlobalSearchOpen(false);
+  }, []);
+  const openGlobalSearch = useCallback(() => {
+    setIsGlobalSearchOpen(true);
+    window.setTimeout(() => globalSearchInputRef.current?.focus(), 30);
+  }, []);
+  const toggleStreamSearch = useCallback(() => {
+    setIsStreamSearchOpen((current) => {
+      const next = !current;
+      if (!next) {
+        setStreamSearchQuery("");
+      } else {
+        window.setTimeout(() => streamSearchInputRef.current?.focus(), 30);
+      }
+      return next;
+    });
+  }, []);
+  const toggleThreadSearch = useCallback(() => {
+    setIsThreadSearchOpen((current) => {
+      const next = !current;
+      threadSearchRequestIdRef.current += 1;
+      if (!next) {
+        setThreadSearchQuery("");
+      } else {
+        window.setTimeout(() => threadSearchInputRef.current?.focus(), 30);
+      }
+      return next;
+    });
+  }, []);
+  const handleSearchTarget = useCallback(
+    (target: SearchResult["target"]) => {
+      if (target.type === "stream-title" && target.conversationId) {
+        setPendingJumpTarget(null);
+        setPendingThreadReplyTarget(null);
+        setThreadContext(null);
+        setIsThreadCollapsed(false);
+        setActiveTab("chat");
+        setActiveChat("assistant");
+        setMobileView("chat");
+        setSelectedChatId(target.conversationId);
+        highlightConversationTitle(target.conversationId);
+        return;
+      }
+
+      if (
+        target.type === "stream-message" &&
+        target.conversationId &&
+        target.messageId
+      ) {
+        jumpToConversationMessage(
+          target.conversationId,
+          target.messageId,
+          target.blockId,
+        );
+        return;
+      }
+
+      if (
+        target.type === "thread-reply" &&
+        target.conversationId &&
+        target.messageId &&
+        target.replyMessageId
+      ) {
+        openThreadReplyTarget({
+          conversationId: target.conversationId,
+          messageId: target.messageId,
+          blockId: target.blockId,
+          replyMessageId: target.replyMessageId,
+        });
+        return;
+      }
+
+      if (
+        (target.type === "sorting-result" ||
+          target.type === "sorting-source") &&
+        target.sorting
+      ) {
+        setActiveTab("sorting");
+        setActiveChat("sorting");
+        setMobileView("sorting");
+        window.setTimeout(() => {
+          void sortingSearchLocatorRef.current?.(target.sorting!);
+        }, 50);
+      }
+    },
+    [
+      highlightConversationTitle,
+      jumpToConversationMessage,
+      openThreadReplyTarget,
+    ],
+  );
+  const handleSelectGlobalSearchResult = useCallback(
+    (result: SearchResult) => {
+      handleSearchTarget(result.target);
+      closeGlobalSearch();
+    },
+    [closeGlobalSearch, handleSearchTarget],
+  );
+  const handleRunGlobalAuxAction = useCallback(
+    (result: SearchResult) => {
+      if (!result.auxiliaryAction) return;
+      handleSearchTarget(result.auxiliaryAction.target);
+      closeGlobalSearch();
+    },
+    [closeGlobalSearch, handleSearchTarget],
+  );
+  const handleLoadMoreGlobalSearch = useCallback(() => {
+    void performGlobalSearch(
+      globalSearchQuery,
+      globalSearchScope,
+      globalSearchResults.length,
+      true,
+    );
+  }, [
+    globalSearchQuery,
+    globalSearchResults.length,
+    globalSearchScope,
+    performGlobalSearch,
+  ]);
+  const handleSelectStreamSearchResult = useCallback(
+    (result: SearchResult) => {
+      handleSearchTarget(result.target);
+      setIsStreamSearchOpen(false);
+      setStreamSearchQuery("");
+    },
+    [handleSearchTarget],
+  );
+  const handleRunStreamAuxAction = useCallback(
+    (result: SearchResult) => {
+      if (!result.auxiliaryAction) return;
+      handleSearchTarget(result.auxiliaryAction.target);
+      setIsStreamSearchOpen(false);
+      setStreamSearchQuery("");
+    },
+    [handleSearchTarget],
+  );
+  const handleLoadMoreStreamSearch = useCallback(() => {
+    performStreamSearch(streamSearchQuery, streamSearchResults.length, true);
+  }, [performStreamSearch, streamSearchQuery, streamSearchResults.length]);
+  const handleSelectThreadSearchResult = useCallback(
+    (result: SearchResult) => {
+      handleSearchTarget(result.target);
+      setIsThreadSearchOpen(false);
+      setThreadSearchQuery("");
+    },
+    [handleSearchTarget],
+  );
+  const handleRunThreadAuxAction = useCallback(
+    (result: SearchResult) => {
+      if (!result.auxiliaryAction) return;
+      handleSearchTarget(result.auxiliaryAction.target);
+      setIsThreadSearchOpen(false);
+      setThreadSearchQuery("");
+    },
+    [handleSearchTarget],
+  );
+  const handleLoadMoreThreadSearch = useCallback(() => {
+    void performThreadSearch(threadSearchQuery, threadSearchResults.length, true);
+  }, [performThreadSearch, threadSearchQuery, threadSearchResults.length]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (isGlobalSearchOpen) {
+          closeGlobalSearch();
+        } else {
+          openGlobalSearch();
+        }
+        return;
+      }
+      if (event.key === "Escape" && isGlobalSearchOpen) {
+        event.preventDefault();
+        closeGlobalSearch();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeGlobalSearch, isGlobalSearchOpen, openGlobalSearch]);
+
+  useEffect(() => {
+    setGlobalSearchSelectedIndex((current) =>
+      globalSearchResults.length === 0
+        ? 0
+        : Math.min(current, globalSearchResults.length - 1),
+    );
+  }, [globalSearchResults]);
+
+  useEffect(() => {
+    setStreamSearchSelectedIndex((current) =>
+      streamSearchResults.length === 0
+        ? 0
+        : Math.min(current, streamSearchResults.length - 1),
+    );
+  }, [streamSearchResults]);
+
+  useEffect(() => {
+    setThreadSearchSelectedIndex((current) =>
+      threadSearchResults.length === 0
+        ? 0
+        : Math.min(current, threadSearchResults.length - 1),
+    );
+  }, [threadSearchResults]);
+
+  const handleGlobalSearchInputKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setGlobalSearchSelectedIndex((current) =>
+          Math.min(current + 1, Math.max(0, globalSearchResults.length - 1)),
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setGlobalSearchSelectedIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = globalSearchResults[globalSearchSelectedIndex];
+        if (target) {
+          handleSelectGlobalSearchResult(target);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeGlobalSearch();
+      }
+    },
+    [
+      closeGlobalSearch,
+      globalSearchResults,
+      globalSearchSelectedIndex,
+      handleSelectGlobalSearchResult,
+    ],
+  );
+
+  const handleStreamSearchInputKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setStreamSearchSelectedIndex((current) =>
+          Math.min(current + 1, Math.max(0, streamSearchResults.length - 1)),
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setStreamSearchSelectedIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = streamSearchResults[streamSearchSelectedIndex];
+        if (target) {
+          handleSelectStreamSearchResult(target);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsStreamSearchOpen(false);
+        setStreamSearchQuery("");
+      }
+    },
+    [
+      handleSelectStreamSearchResult,
+      streamSearchResults,
+      streamSearchSelectedIndex,
+    ],
+  );
+  const handleThreadSearchInputKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setThreadSearchSelectedIndex((current) =>
+          Math.min(current + 1, Math.max(0, threadSearchResults.length - 1)),
+        );
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setThreadSearchSelectedIndex((current) => Math.max(0, current - 1));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = threadSearchResults[threadSearchSelectedIndex];
+        if (target) {
+          handleSelectThreadSearchResult(target);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsThreadSearchOpen(false);
+        setThreadSearchQuery("");
+      }
+    },
+    [
+      handleSelectThreadSearchResult,
+      threadSearchResults,
+      threadSearchSelectedIndex,
+    ],
+  );
+
+  const globalSearchResultsView = useMemo(
+    () => (
+      <SearchResultPanel
+        results={globalSearchResults}
+        selectedIndex={globalSearchSelectedIndex}
+        hasMore={globalSearchHasMore}
+        total={globalSearchTotal}
+        emptyText={globalSearchQuery.trim() ? "没有找到结果" : "输入关键词开始搜索"}
+        onSelect={handleSelectGlobalSearchResult}
+        onSelectIndex={setGlobalSearchSelectedIndex}
+        onLoadMore={handleLoadMoreGlobalSearch}
+        onRunAuxiliaryAction={handleRunGlobalAuxAction}
+      />
+    ),
+    [
+      globalSearchHasMore,
+      globalSearchQuery,
+      globalSearchResults,
+      globalSearchSelectedIndex,
+      globalSearchTotal,
+      handleLoadMoreGlobalSearch,
+      handleRunGlobalAuxAction,
+      handleSelectGlobalSearchResult,
+    ],
+  );
+
+  const streamSearchResultsView = useMemo(
+    () => (
+      <SearchResultPanel
+        compact
+        results={streamSearchResults}
+        selectedIndex={streamSearchSelectedIndex}
+        hasMore={streamSearchHasMore}
+        total={streamSearchTotal}
+        emptyText="当前泡泡流里没有找到结果"
+        onSelect={handleSelectStreamSearchResult}
+        onSelectIndex={setStreamSearchSelectedIndex}
+        onLoadMore={handleLoadMoreStreamSearch}
+        onRunAuxiliaryAction={handleRunStreamAuxAction}
+      />
+    ),
+    [
+      handleLoadMoreStreamSearch,
+      handleRunStreamAuxAction,
+      handleSelectStreamSearchResult,
+      streamSearchHasMore,
+      streamSearchResults,
+      streamSearchSelectedIndex,
+      streamSearchTotal,
+    ],
+  );
+  const threadSearchResultsView = useMemo(
+    () => (
+      <SearchResultPanel
+        compact
+        results={threadSearchResults}
+        selectedIndex={threadSearchSelectedIndex}
+        hasMore={threadSearchHasMore}
+        total={threadSearchTotal}
+        emptyText="当前详情页没有找到结果"
+        onSelect={handleSelectThreadSearchResult}
+        onSelectIndex={setThreadSearchSelectedIndex}
+        onLoadMore={handleLoadMoreThreadSearch}
+        onRunAuxiliaryAction={handleRunThreadAuxAction}
+      />
+    ),
+    [
+      handleLoadMoreThreadSearch,
+      handleRunThreadAuxAction,
+      handleSelectThreadSearchResult,
+      threadSearchHasMore,
+      threadSearchResults,
+      threadSearchSelectedIndex,
+      threadSearchTotal,
+    ],
+  );
 
   const listPaneProps = useMemo(
     () =>
@@ -2140,10 +2898,12 @@ export default function AppRouter() {
             rows: listRows,
             listViewMode,
             foldedChannelCount: foldedChannels.length,
+            listSearchQuery,
             selectedChatId,
             isCollapsed: isListCollapsed,
             limit: listPane.limit,
             onCreateConversation: handleCreateConversation,
+            onListSearchQueryChange: setListSearchQuery,
             onSelectChannel: selectChannel,
             onOpenChannelSettings: openStreamSettings,
             onToggleListCollapsed: setIsListCollapsed,
@@ -2158,6 +2918,7 @@ export default function AppRouter() {
       handleToggleFoldedList,
       isListCollapsed,
       listPane.limit,
+      listSearchQuery,
       listRows,
       listViewMode,
       openStreamSettings,
@@ -2508,6 +3269,12 @@ export default function AppRouter() {
     threadBlockId,
     threadMsg: threadMsg || null,
     threadReplies,
+    highlightedReplyMessageId: highlightedThreadReplyId,
+    searchQuery: threadSearchQuery,
+    searchOpen: isThreadSearchOpen,
+    searchPanelOpen: isThreadSearchOpen && Boolean(threadSearchQuery.trim()),
+    searchInputRef: threadSearchInputRef,
+    searchResultsView: threadSearchResultsView,
     isCollapsed: isThreadCollapsed,
     limit: threadPane.limit,
     currentUserAvatar,
@@ -2526,6 +3293,11 @@ export default function AppRouter() {
     onBackToChat: handleThreadBackToChat,
     onClose: closeThreadPane,
     onExpand: () => setIsThreadCollapsed(false),
+    onToggleSearch: toggleThreadSearch,
+    onSearchQueryChange: setThreadSearchQuery,
+    onSearchInputFocus: noop,
+    onSearchInputKeyDown: handleThreadSearchInputKeyDown,
+    onClearSearch: () => setThreadSearchQuery(""),
     onJumpToMsg: handleThreadJumpToMsg,
     onOpenThread: handleThreadOpenThread,
     onToggleLike: handleThreadToggleLike,
@@ -2546,6 +3318,52 @@ export default function AppRouter() {
   const toastView = (
     <div className={`toast ${toastMsg ? "show" : ""}`}>{toastMsg}</div>
   );
+  const globalSearchOverlayView = isGlobalSearchOpen ? (
+    <div className="app-search-overlay" onClick={closeGlobalSearch}>
+      <div
+        className="app-search-dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="app-search-head">
+          <input
+            ref={globalSearchInputRef}
+            type="text"
+            className="app-search-input"
+            value={globalSearchQuery}
+            placeholder="搜索如流、评论、泡泡箱"
+            onChange={(event) => setGlobalSearchQuery(event.target.value)}
+            onKeyDown={handleGlobalSearchInputKeyDown}
+          />
+          <button
+            type="button"
+            className="app-search-close"
+            onClick={closeGlobalSearch}
+            aria-label="关闭搜索"
+          >
+            ×
+          </button>
+        </div>
+        <div className="app-search-scopes">
+          {[
+            ["all", "全部"],
+            ["streams", "泡泡流"],
+            ["comments", "评论"],
+            ["sorting", "泡泡箱"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`app-search-scope-pill ${globalSearchScope === value ? "is-active" : ""}`}
+              onClick={() => setGlobalSearchScope(value as SearchScope)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {globalSearchResultsView}
+      </div>
+    </div>
+  ) : null;
   const fullscreenView = fsOpen ? (
     <div
       className="fullscreen-overlay show"
@@ -2927,7 +3745,13 @@ export default function AppRouter() {
           isCurrentConversationDirect,
           sortedMessages: topLevelMessages,
           highlightedMsg,
+          highlightedTitle: highlightedConversationTitleId === currentChannel?.id,
           currentDraft,
+          searchQuery: streamSearchQuery,
+          searchOpen: isStreamSearchOpen,
+          searchPanelOpen: isStreamSearchOpen && Boolean(streamSearchQuery.trim()),
+          searchInputRef: streamSearchInputRef,
+          searchResultsView: streamSearchResultsView,
           composerEditBanner,
           navStackDepth: navStack.length,
           mobileView,
@@ -2939,6 +3763,11 @@ export default function AppRouter() {
           onBackToList: handleBackToList,
           onOpenCurrentChannelSettings: handleOpenCurrentChannelSettings,
           onMessageAreaScroll: handleMessageAreaScroll,
+          onToggleSearch: toggleStreamSearch,
+          onSearchQueryChange: setStreamSearchQuery,
+          onSearchInputFocus: noop,
+          onSearchInputKeyDown: handleStreamSearchInputKeyDown,
+          onClearSearch: () => setStreamSearchQuery(""),
           onJumpToMsg: jumpToMsg,
           onOpenFullscreen: openFullscreenMedia,
           onOpenAttachment: openAttachmentWithDefaultApp,
@@ -2984,6 +3813,9 @@ export default function AppRouter() {
         onSendToStream={(payload) => void sendSortingSourceMessage(payload)}
         onOpenSourceThread={openSortingThreadPane}
         onRegisterSourceLocator={registerSortingSourceLocator}
+        onRegisterSearchProvider={registerSortingSearchProvider}
+        onRegisterSearchLocator={registerSortingSearchLocator}
+        onRevealSearchTarget={handleSearchTarget}
         onOpenGlobalBotSettings={handleOpenGlobalBotSettings}
       />
 
@@ -3025,10 +3857,12 @@ export default function AppRouter() {
           setActiveChat("factory");
           setMobileView("factory");
         }}
+        onOpenSearch={openGlobalSearch}
         onToggleList={() => setIsListCollapsed((prev) => !prev)}
       />
 
       {toastView}
+      {globalSearchOverlayView}
       {fullscreenView}
       {contextMenuView}
       {forwardingPickerView}

@@ -1,5 +1,6 @@
-import type { CSSProperties, MouseEvent, RefObject } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent, ReactNode, RefObject } from 'react';
 import { CurrentStatusGlyph } from '@/shared/icons/StatusGlyph';
+import { InlineSearchControl } from '@/shared/ui/InlineSearchControl';
 import type { BotRecord } from '@/entities/bot';
 import type {
   SortingBoxView,
@@ -28,6 +29,15 @@ export function SortingBoard({
   sourceInfoMap,
   bubbleCount,
   currentLayerName,
+  localSearchQuery,
+  localSearchOpen,
+  localSearchInputRef,
+  localSearchPanelOpen,
+  localSearchResultsView,
+  highlightedBoxId,
+  highlightedLayerId,
+  highlightedColumnId,
+  highlightedItemId,
   expandedBubbleIds,
   editingBubbleId,
   editingBubbleDraft,
@@ -48,6 +58,11 @@ export function SortingBoard({
   onOpenHome,
   onOpenParent,
   onOpenBoxSettings,
+  onToggleLocalSearch,
+  onLocalSearchQueryChange,
+  onLocalSearchFocus,
+  onLocalSearchKeyDown,
+  onClearLocalSearch,
   onStartEditBubble,
   onBubbleDraftChange,
   onToggleExpandedBubble,
@@ -72,6 +87,15 @@ export function SortingBoard({
   sourceInfoMap: Record<string, SortingBubbleSourceInfo>;
   bubbleCount: number;
   currentLayerName: string | null;
+  localSearchQuery: string;
+  localSearchOpen: boolean;
+  localSearchInputRef: RefObject<HTMLInputElement | null>;
+  localSearchPanelOpen: boolean;
+  localSearchResultsView?: ReactNode;
+  highlightedBoxId?: string | null;
+  highlightedLayerId?: string | null;
+  highlightedColumnId?: string | null;
+  highlightedItemId?: string | null;
   expandedBubbleIds: Set<string>;
   editingBubbleId: string | null;
   editingBubbleDraft: SortingBubbleDraft | null;
@@ -92,6 +116,11 @@ export function SortingBoard({
   onOpenHome: () => void;
   onOpenParent: () => void;
   onOpenBoxSettings: (botId?: string) => void;
+  onToggleLocalSearch: () => void;
+  onLocalSearchQueryChange: (value: string) => void;
+  onLocalSearchFocus: () => void;
+  onLocalSearchKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  onClearLocalSearch: () => void;
   onStartEditBubble: (item: SortingCardView) => void;
   onBubbleDraftChange: (patch: Partial<SortingBubbleDraft>) => void;
   onToggleExpandedBubble: (itemId: string) => void;
@@ -113,9 +142,18 @@ export function SortingBoard({
           </div>
           <div className="s-board-toolbar-copy">
             <div className="s-board-toolbar-mainline">
-              <h2>{activeBox.name}</h2>
+              <h2
+                data-sorting-active-box-id={activeBox.id}
+                className={highlightedBoxId === activeBox.id ? 'is-highlighted' : ''}
+              >
+                {activeBox.name}
+              </h2>
               {currentLayerName && selectedLayers.length > 1 ? (
-                <span className="s-board-focus-note" title={`当前层：${currentLayerName}`} aria-label={`当前层：${currentLayerName}`}>
+                <span
+                  className={`s-board-focus-note ${highlightedLayerId && selectedLayers.some((layer) => layer.id === highlightedLayerId) ? 'is-highlighted' : ''}`}
+                  title={`当前层：${currentLayerName}`}
+                  aria-label={`当前层：${currentLayerName}`}
+                >
                   <CurrentStatusGlyph size={12} />
                   <span>{currentLayerName}</span>
                 </span>
@@ -130,6 +168,21 @@ export function SortingBoard({
           <span>{boxItems.length} 个条目</span>
         </div>
         <div className="s-panel-toolbar-actions">
+          <InlineSearchControl
+            open={localSearchOpen}
+            panelOpen={localSearchPanelOpen}
+            query={localSearchQuery}
+            placeholder="搜当前分箱页"
+            buttonLabel="搜索当前分箱页"
+            className="inline-search--board"
+            inputRef={localSearchInputRef}
+            resultsView={localSearchResultsView}
+            onToggle={onToggleLocalSearch}
+            onQueryChange={onLocalSearchQueryChange}
+            onInputFocus={onLocalSearchFocus}
+            onInputKeyDown={onLocalSearchKeyDown}
+            onClear={onClearLocalSearch}
+          />
           <div className="flex flex-wrap items-center justify-end gap-2">
             {highlightedBots.slice(0, 4).map((bot) => (
               <button
@@ -174,6 +227,8 @@ export function SortingBoard({
         expandedBubbleIds={expandedBubbleIds}
         editingBubbleId={editingBubbleId}
         editingBubbleDraft={editingBubbleDraft}
+        highlightedColumnId={highlightedColumnId}
+        highlightedItemId={highlightedItemId}
         editingColId={editingColId}
         editingColName={editingColName}
         editColRef={editColRef}

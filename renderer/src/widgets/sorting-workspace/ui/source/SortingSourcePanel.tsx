@@ -16,6 +16,7 @@ import {
 import type { DraftState } from '@/features/send-message/model/draft';
 import { CurrentStatusGlyph, SelectedStatusGlyph } from '@/shared/icons/StatusGlyph';
 import { BubbleComposer } from '@/shared/ui/BubbleComposer';
+import { CompactListSearch } from '@/shared/ui/CompactListSearch';
 import { StreamAvatar } from '@/shared/ui/StreamAvatar';
 import type { SortingStream } from '@/entities/sorting';
 import { SortingSourceBubbleCard } from '../bubble';
@@ -104,6 +105,10 @@ export function SortingSourcePanel({
   highlightedBubbleKey,
   isCollapsed,
   isListView,
+  sourceViewMode,
+  visibleStreamIds,
+  streamListSearchQuery,
+  detailBubbleSearchQuery,
   composerDraft,
   composerPlaceholder,
   composerDisabled,
@@ -120,6 +125,8 @@ export function SortingSourcePanel({
   onFocusStream,
   onOpenStream,
   onOpenSelectedStreams,
+  onStreamListSearchQueryChange,
+  onDetailBubbleSearchQueryChange,
   onClearSelection,
   onBackToList,
   onToggleCollapse,
@@ -134,6 +141,9 @@ export function SortingSourcePanel({
   isCollapsed: boolean;
   isListView: boolean;
   sourceViewMode: 'focused' | 'all-selected';
+  visibleStreamIds: string[];
+  streamListSearchQuery: string;
+  detailBubbleSearchQuery: string;
   composerDraft: DraftState;
   composerPlaceholder: string;
   composerDisabled: boolean;
@@ -150,6 +160,8 @@ export function SortingSourcePanel({
   onFocusStream: (streamId: string) => void;
   onOpenStream: (streamId: string) => void;
   onOpenSelectedStreams: () => void;
+  onStreamListSearchQueryChange: (value: string) => void;
+  onDetailBubbleSearchQueryChange: (value: string) => void;
   onClearSelection: () => void;
   onBackToList: () => void;
   onToggleCollapse: () => void;
@@ -169,6 +181,7 @@ export function SortingSourcePanel({
     () => streams.reduce((sum, stream) => sum + stream.messages.length, 0),
     [streams],
   );
+  const visibleStreamIdSet = useMemo(() => new Set(visibleStreamIds), [visibleStreamIds]);
   const selectedStreamIdSet = useMemo(() => new Set(selectedStreamIds), [selectedStreamIds]);
   const selectedStreamCount = selectedStreamIds.length;
   const selectedStreamsOrdered = useMemo(
@@ -178,6 +191,10 @@ export function SortingSourcePanel({
     [selectedStreamIds, streams],
   );
   const sourceToggleLabel = isCollapsed ? '展开泡泡流面板' : '收起泡泡流面板';
+  const filteredStreamCards = useMemo(
+    () => streamCards.filter(({ stream }) => visibleStreamIdSet.has(stream.id)),
+    [streamCards, visibleStreamIdSet],
+  );
   const collapsedStreamCards = useMemo(() => {
     if (isListView) return streamCards;
     const selectedCards = streamCards.filter(({ stream }) => selectedStreamIdSet.has(stream.id));
@@ -216,6 +233,18 @@ export function SortingSourcePanel({
   );
   const sourceBubbleListSection = useMemo(() => {
     if (isCollapsed || isListView || !currentStream) return null;
+    if (bubbles.length === 0) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-4 pb-6 text-center text-sm text-[var(--text-secondary)]">
+          <div className="rounded-[24px] border border-dashed border-black/10 bg-white/72 px-5 py-4">
+            <p className="mb-1 font-semibold text-[var(--text-primary)]">
+              {detailBubbleSearchQuery.trim() ? '没有匹配的泡泡' : (sourceViewMode === 'all-selected' ? '当前详情里还没有泡泡' : '这条泡泡流还没有泡泡')}
+            </p>
+            <span>{detailBubbleSearchQuery.trim() ? '换个词试试，或清空搜索。' : '发一条新泡泡，或换一条流看看。'}</span>
+          </div>
+        </div>
+      );
+    }
     return (
       <Droppable
         droppableId="bubble-source"
@@ -310,6 +339,7 @@ export function SortingSourcePanel({
   }, [
     bubbles,
     currentStream,
+    detailBubbleSearchQuery,
     draggableEntries,
     draggableIndexByKey,
     foldedBubbles,
@@ -318,6 +348,7 @@ export function SortingSourcePanel({
     onOpenBubbleMenu,
     onUnfoldBubble,
     selectedStreamCount,
+    sourceViewMode,
   ]);
 
   const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -363,6 +394,24 @@ export function SortingSourcePanel({
             </div>
           </div>
           <div className="s-panel-toolbar-actions">
+            {isListView ? (
+              <CompactListSearch
+                value={streamListSearchQuery}
+                placeholder="搜泡泡流"
+                buttonLabel="筛选泡泡流"
+                className="list-search-control--source"
+                onChange={onStreamListSearchQueryChange}
+              />
+            ) : null}
+            {!isListView && currentStream ? (
+              <CompactListSearch
+                value={detailBubbleSearchQuery}
+                placeholder={sourceViewMode === 'all-selected' ? '搜当前详情里的泡泡' : '搜这条流里的泡泡'}
+                buttonLabel="筛选当前详情泡泡"
+                className="list-search-control--source"
+                onChange={onDetailBubbleSearchQueryChange}
+              />
+            ) : null}
             <button type="button" className="s-toolbar-toggle" onClick={onToggleCollapse} aria-label={sourceToggleLabel} title={sourceToggleLabel}>
               <PanelLeftIcon size={16} />
             </button>
@@ -455,15 +504,15 @@ export function SortingSourcePanel({
       {!isCollapsed && isListView && (
         <div className="s-source-stream-list-shell">
           <div className="s-source-stream-list">
-            {streamCards.length === 0 ? (
+            {filteredStreamCards.length === 0 ? (
               <div className="s-source-empty-state">
                 <p className="mb-1 font-semibold text-[var(--text-primary)]">
-                  这里还没有泡泡流
+                  {streamListSearchQuery.trim() ? '没有匹配的泡泡流' : '这里还没有泡泡流'}
                 </p>
-                <span>回到聊天页后，新开一个泡泡流再来分箱。</span>
+                <span>{streamListSearchQuery.trim() ? '换个词试试，或清空搜索。' : '回到聊天页后，新开一个泡泡流再来分箱。'}</span>
               </div>
             ) : (
-              streamCards.map(({ stream, preview, updatedAt }) => {
+              filteredStreamCards.map(({ stream, preview, updatedAt }) => {
                 const isSelected = selectedStreamIdSet.has(stream.id);
                 const isCurrent = currentStream?.id === stream.id;
                 const selectToggleLabel = isSelected

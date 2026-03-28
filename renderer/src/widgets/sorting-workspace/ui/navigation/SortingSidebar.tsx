@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import { Draggable, Droppable } from '@hello-pangea/dnd';
 import { CurrentStatusGlyph, SelectedStatusGlyph } from '@/shared/icons/StatusGlyph';
+import { CompactListSearch } from '@/shared/ui/CompactListSearch';
 import { InitialAvatar } from '@/shared/ui/StreamAvatar';
 import type { SortingBoxView, SortingLayerView, SortingStream } from '@/entities/sorting';
 import { BoxIcon, ChevronLeftIcon, ChevronRightIcon, PanelLeftIcon } from '../icons';
@@ -106,6 +107,7 @@ export function SortingSidebar({
   currentLayers,
   showSourcesSection = true,
   streams,
+  boxSearchQuery,
   activeBoxId,
   currentBox,
   breadcrumbBoxes,
@@ -144,6 +146,7 @@ export function SortingSidebar({
   onCancelRenameLayer,
   onOpenBoxMenu,
   onOpenLayerMenu,
+  onBoxSearchQueryChange,
   onFocusLayer,
   onToggleLayer,
   onToggleSource,
@@ -152,11 +155,14 @@ export function SortingSidebar({
   onToggleLayersCollapse,
   onToggleSourcesCollapse,
   onSectionLayoutChange,
+  highlightedBoxId,
+  highlightedLayerId,
 }: {
   switchBoxes: SortingBoxView[];
   currentLayers: SortingLayerView[];
   showSourcesSection?: boolean;
   streams: SortingStream[];
+  boxSearchQuery: string;
   activeBoxId: string;
   currentBox: SortingBoxView | null | undefined;
   breadcrumbBoxes: SortingBoxView[];
@@ -195,6 +201,7 @@ export function SortingSidebar({
   onCancelRenameLayer: () => void;
   onOpenBoxMenu: (event: MouseEvent<HTMLElement>, boxId: string) => void;
   onOpenLayerMenu: (event: MouseEvent<HTMLElement>, layer: SortingLayerView) => void;
+  onBoxSearchQueryChange: (value: string) => void;
   onFocusLayer: (layerId: string) => void;
   onToggleLayer: (layerId: string) => void;
   onToggleSource: (streamId: string) => void;
@@ -203,6 +210,8 @@ export function SortingSidebar({
   onToggleLayersCollapse: () => void;
   onToggleSourcesCollapse: () => void;
   onSectionLayoutChange: (layout: SidebarSectionLayout) => void;
+  highlightedBoxId?: string | null;
+  highlightedLayerId?: string | null;
 }) {
   const activeLayerCount = selectedLayerIds.length;
   const activeStreamCount = selectedSourceIds.length;
@@ -322,7 +331,12 @@ export function SortingSidebar({
       >
         {(dragProvided, dragSnapshot) => {
           const boxNode = (
-            <div ref={dragProvided.innerRef} {...dragProvided.draggableProps} style={dragProvided.draggableProps.style}>
+            <div
+              ref={dragProvided.innerRef}
+              {...dragProvided.draggableProps}
+              style={dragProvided.draggableProps.style}
+              data-sorting-box-id={isEditing ? box.id : undefined}
+            >
               {isEditing ? (
                 <div className={cx('s-sidebar-item', 'active')} style={{ '--box-tone': box.tone } as CSSProperties}>
                   <span className="s-sidebar-item-icon-shell">
@@ -341,7 +355,7 @@ export function SortingSidebar({
                 </div>
               ) : (
                 <div
-                  className={cx('s-sidebar-item', activeBoxId === box.id && 'active', dragSnapshot.isDragging && 'is-dragging')}
+                  className={cx('s-sidebar-item', activeBoxId === box.id && 'active', dragSnapshot.isDragging && 'is-dragging', highlightedBoxId === box.id && 'is-search-highlight')}
                   role="button"
                   onClick={() => onSelectBox(box.id)}
                   onDoubleClick={() => onStartRenameBox(box)}
@@ -355,6 +369,7 @@ export function SortingSidebar({
                   tabIndex={0}
                   title={box.name}
                   style={{ '--box-tone': box.tone } as CSSProperties}
+                  data-sorting-box-id={box.id}
                   {...dragProvided.dragHandleProps}
                 >
                   <span className="s-sidebar-item-icon-shell">
@@ -418,7 +433,16 @@ export function SortingSidebar({
           {!isCollapsed && (
             <div className="s-sidebar-label">
               <span>{switchBoxCountLabel}</span>
-              <strong>{switchBoxes.length}</strong>
+              <div className="flex items-center gap-2">
+                <strong>{switchBoxes.length}</strong>
+                <CompactListSearch
+                  value={boxSearchQuery}
+                  placeholder="搜箱子名"
+                  buttonLabel="筛选箱子"
+                  className="list-search-control--sidebar"
+                  onChange={onBoxSearchQueryChange}
+                />
+              </div>
             </div>
           )}
           {!isCollapsed && currentBox && breadcrumbBoxes.length > 0 && (
@@ -444,11 +468,12 @@ export function SortingSidebar({
                     ) : (
                       <button
                         type="button"
-                        className={cx('s-sidebar-breadcrumb-item', isCurrent && 'is-current')}
+                        className={cx('s-sidebar-breadcrumb-item', isCurrent && 'is-current', highlightedBoxId === box.id && 'is-search-highlight')}
                         onClick={() => onSelectBreadcrumbBox(box.id)}
                         onDoubleClick={() => onStartRenameBox(box)}
                         onContextMenu={(event) => onOpenBoxMenu(event, box.id)}
                         title={box.name}
+                        data-sorting-box-id={box.id}
                       >
                         {box.name}
                       </button>
@@ -472,8 +497,8 @@ export function SortingSidebar({
                 {provided.placeholder}
                 {!isCollapsed && switchBoxes.length === 0 ? (
                   <div className="s-sidebar-empty">
-                    <strong>这里还没有可切换的箱子</strong>
-                    <span>先回主页，或在当前箱子下新建一个子箱。</span>
+                    <strong>{boxSearchQuery.trim() ? '没有匹配的箱子' : '这里还没有可切换的箱子'}</strong>
+                    <span>{boxSearchQuery.trim() ? '换个词试试，或清空搜索。' : '先回主页，或在当前箱子下新建一个子箱。'}</span>
                   </div>
                 ) : null}
               </div>
@@ -541,7 +566,8 @@ export function SortingSidebar({
                 return (
                 <div
                   key={layer.id}
-                  className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused')}
+                  className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused', highlightedLayerId === layer.id && 'is-search-highlight')}
+                  data-sorting-layer-id={layer.id}
                 >
                     <span className="s-source-check">
                       <span className={cx('s-source-check-dot', selected && 'is-selected')} />
@@ -567,13 +593,14 @@ export function SortingSidebar({
                   <button
                     key={layer.id}
                     type="button"
-                    className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused')}
+                    className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused', highlightedLayerId === layer.id && 'is-search-highlight')}
                     onClick={() => onFocusLayer(layer.id)}
                     onDoubleClick={() => onStartRenameLayer(layer)}
                     onContextMenu={(event) => onOpenLayerMenu(event, layer)}
                     title={`${layer.name}${isCurrent ? ' · 当前层' : selected ? ' · 已选中' : ''}`}
                     aria-label={isCurrent ? `当前层 ${layer.name}` : `聚焦层 ${layer.name}`}
                     aria-current={isCurrent ? 'true' : undefined}
+                    data-sorting-layer-id={layer.id}
                   >
                     <span className={cx('s-sidebar-item-icon-shell', 's-sidebar-item-icon-shell--layer', selected && 'is-selected')}>
                       <InitialAvatar label={layer.name} seed={layer.id} className="h-full w-full rounded-[14px]" textClassName="text-sm font-semibold text-white" />
@@ -585,8 +612,9 @@ export function SortingSidebar({
               return (
                 <div
                   key={layer.id}
-                  className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused')}
+                  className={cx('s-sidebar-item', 's-sidebar-item--layer', selected && 'active', isCurrent && 'is-focused', highlightedLayerId === layer.id && 'is-search-highlight')}
                   onContextMenu={(event) => onOpenLayerMenu(event, layer)}
+                  data-sorting-layer-id={layer.id}
                 >
                   <button
                     type="button"

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { DragDropContext, type DropResult } from '@hello-pangea/dnd';
 import { getDraftMessageBlocks } from '@/features/send-message/model/bubbleDraft';
 import type { BotRecord } from '@/entities/bot';
@@ -7,7 +7,22 @@ import { ResizeHandle } from '@/shared/ui/ResizeHandle';
 import { useBoundedPaneSize } from '@/shared/hooks/useBoundedPaneSize';
 import { getDesktopBridge } from '@/shared/lib/desktop-bridge';
 import { resolveBubbleLinkBlocksForSubmit } from '@/shared/lib/bubble-link';
+import { getLinkDisplayLabel } from '@/shared/lib/link';
 import { uploadFile } from '@/shared/lib/upload';
+import {
+  compareSearchResults,
+  normalizeSearchQuery,
+  paginateSearchResults,
+  scoreSearchText,
+  type SearchRequest,
+  type SearchResponse,
+  type SearchResult,
+  type SearchResultTarget,
+  type SortingSearchLocator,
+  type SortingSearchLocatorPayload,
+  type SortingSearchProvider,
+} from '@/shared/lib/search';
+import { SearchResultPanel } from '@/shared/ui/SearchResultPanel';
 import type { MessageData } from '@/entities/message';
 import type {
   SortingBoxView,
@@ -39,6 +54,7 @@ import {
   buildBubbleDraft,
   buildBubbleMessagePayload,
   buildBubbleContentSummary,
+  buildMessagePreviewText,
   buildSortingBubbleMessage,
   formatDateTime,
   getMessageBlocks,
@@ -95,6 +111,9 @@ export interface SortingPaneProps {
   }) => void | Promise<void>;
   onOpenSourceThread?: (payload: ThreadTarget) => void;
   onRegisterSourceLocator?: (locator: ((payload: ThreadTarget) => void | Promise<void>) | null) => void;
+  onRegisterSearchProvider?: (provider: SortingSearchProvider | null) => void;
+  onRegisterSearchLocator?: (locator: SortingSearchLocator | null) => void;
+  onRevealSearchTarget?: (target: SearchResultTarget) => void;
   onOpenGlobalBotSettings?: () => void;
 }
 
@@ -245,6 +264,13 @@ function createEmptySourceDraft(): SortingSourceDraftState {
   };
 }
 
+function getPrimaryListMatchScore(query: string, title: string, preview = '') {
+  return Math.max(
+    scoreSearchText(query, title, 'title'),
+    scoreSearchText(query, preview, 'content'),
+  );
+}
+
 function normalizePersistedSortingUiState(value: unknown): PersistedSortingUiState {
   const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   return {
@@ -343,6 +369,9 @@ export function SortingWorkbench({
   onSendToStream,
   onOpenSourceThread,
   onRegisterSourceLocator,
+  onRegisterSearchProvider,
+  onRegisterSearchLocator,
+  onRevealSearchTarget,
   onOpenGlobalBotSettings,
 }: SortingPaneProps) {
   const bridge = getDesktopBridge();
@@ -360,6 +389,22 @@ export function SortingWorkbench({
   const [isSidebarSourcesCollapsed, setIsSidebarSourcesCollapsed] = useState(false);
   const [isSourceCollapsed, setIsSourceCollapsed] = useState(false);
   const [isLuggageCollapsed, setIsLuggageCollapsed] = useState(false);
+  const [boxListSearchQuery, setBoxListSearchQuery] = useState('');
+  const [sourceListSearchQuery, setSourceListSearchQuery] = useState('');
+  const [sourceDetailSearchQuery, setSourceDetailSearchQuery] = useState('');
+  const [isLocalSearchOpen, setIsLocalSearchOpen] = useState(false);
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [localSearchResults, setLocalSearchResults] = useState<SearchResult[]>([]);
+  const [localSearchTotal, setLocalSearchTotal] = useState(0);
+  const [localSearchHasMore, setLocalSearchHasMore] = useState(false);
+  const [localSearchSelectedIndex, setLocalSearchSelectedIndex] = useState(0);
+  const [isDetailSearchOpen, setIsDetailSearchOpen] = useState(false);
+  const [detailSearchQuery, setDetailSearchQuery] = useState('');
+  const [detailSearchResults, setDetailSearchResults] = useState<SearchResult[]>([]);
+  const [detailSearchTotal, setDetailSearchTotal] = useState(0);
+  const [detailSearchHasMore, setDetailSearchHasMore] = useState(false);
+  const [detailSearchSelectedIndex, setDetailSearchSelectedIndex] = useState(0);
+  const [pendingSearchLocateTarget, setPendingSearchLocateTarget] = useState<SortingSearchLocatorPayload | null>(null);
   const [toast, setToast] = useState('');
   const [editingBubbleId, setEditingBubbleId] = useState<string | null>(null);
   const [editingBubbleDraft, setEditingBubbleDraft] = useState<SortingBubbleDraft | null>(null);
@@ -371,6 +416,10 @@ export function SortingWorkbench({
   const [boxMenu, setBoxMenu] = useState<BoxMenuState>({ show: false, x: 0, y: 0, boxId: null });
   const [foldedBubbles, setFoldedBubbles] = useState<Set<string>>(new Set());
   const [highlightedSourceBubbleKey, setHighlightedSourceBubbleKey] = useState<string | null>(null);
+  const [highlightedSearchBoxId, setHighlightedSearchBoxId] = useState<string | null>(null);
+  const [highlightedSearchLayerId, setHighlightedSearchLayerId] = useState<string | null>(null);
+  const [highlightedSearchColumnId, setHighlightedSearchColumnId] = useState<string | null>(null);
+  const [highlightedSearchItemId, setHighlightedSearchItemId] = useState<string | null>(null);
   const [editingColId, setEditingColId] = useState<string | null>(null);
   const [editingColName, setEditingColName] = useState('');
   const [editingBoxId, setEditingBoxId] = useState<string | null>(null);
@@ -399,9 +448,12 @@ export function SortingWorkbench({
   const editLayerRef = useRef<HTMLInputElement>(null);
   const newLayerRef = useRef<HTMLInputElement>(null);
   const newColRef = useRef<HTMLInputElement>(null);
+  const localSearchInputRef = useRef<HTMLInputElement>(null);
+  const detailSearchInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<number | null>(null);
   const sidebarDrawerTimerRef = useRef<number | null>(null);
   const sourceHighlightTimerRef = useRef<number | null>(null);
+  const searchHighlightTimerRef = useRef<number | null>(null);
   const hoveredBubbleTargetRef = useRef<HoveredBubbleTarget | null>(null);
   const workspaceRef = useRef<SortingWorkspaceView | null>(null);
   const workspaceRequestSeqRef = useRef(0);
@@ -425,6 +477,26 @@ export function SortingWorkbench({
     toastTimerRef.current = window.setTimeout(() => setToast(''), 2200);
   }, []);
 
+  const highlightSearchTarget = useCallback((
+    kind: 'box' | 'layer' | 'column' | 'item',
+    id: string,
+  ) => {
+    if (searchHighlightTimerRef.current) {
+      window.clearTimeout(searchHighlightTimerRef.current);
+    }
+    setHighlightedSearchBoxId(kind === 'box' ? id : null);
+    setHighlightedSearchLayerId(kind === 'layer' ? id : null);
+    setHighlightedSearchColumnId(kind === 'column' ? id : null);
+    setHighlightedSearchItemId(kind === 'item' ? id : null);
+    searchHighlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedSearchBoxId(null);
+      setHighlightedSearchLayerId(null);
+      setHighlightedSearchColumnId(null);
+      setHighlightedSearchItemId(null);
+      searchHighlightTimerRef.current = null;
+    }, 1500);
+  }, []);
+
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) {
@@ -435,6 +507,9 @@ export function SortingWorkbench({
       }
       if (sourceHighlightTimerRef.current) {
         window.clearTimeout(sourceHighlightTimerRef.current);
+      }
+      if (searchHighlightTimerRef.current) {
+        window.clearTimeout(searchHighlightTimerRef.current);
       }
     };
   }, []);
@@ -821,6 +896,10 @@ export function SortingWorkbench({
     () => new Map(boxes.map((box) => [box.id, box])),
     [boxes],
   );
+  const layerById = useMemo(
+    () => new Map(layers.map((layer) => [layer.id, layer])),
+    [layers],
+  );
   const columnById = useMemo(
     () => new Map(columns.map((column) => [column.id, column])),
     [columns],
@@ -863,6 +942,17 @@ export function SortingWorkbench({
       .sort((left, right) => (right.bubble.time || 0) - (left.bubble.time || 0)),
     [visibleSourceStreams],
   );
+  const visibleSourceListStreamIds = useMemo(() => {
+    const query = sourceListSearchQuery.trim();
+    if (!query) return streams.map((stream) => stream.id);
+    return streams
+      .filter((stream) => {
+        const lastMessage = stream.messages[stream.messages.length - 1] || null;
+        const preview = lastMessage ? buildMessagePreviewText(lastMessage) || '' : '';
+        return getPrimaryListMatchScore(query, stream.title, preview) > 0;
+      })
+      .map((stream) => stream.id);
+  }, [sourceListSearchQuery, streams]);
   const sourceComposerPlaceholder = useMemo(() => {
     if (!currentSourceId) return '先选择一个泡泡流...';
     return '发送泡泡...';
@@ -925,6 +1015,7 @@ export function SortingWorkbench({
 
     setIsSourceCollapsed(false);
     setIsSourceListView(false);
+    setSourceDetailSearchQuery('');
     setFoldedBubbles((prev) => {
       if (!prev.has(bubbleKey)) return prev;
       const next = new Set(prev);
@@ -1033,6 +1124,11 @@ export function SortingWorkbench({
       switchBoxes: nextSwitchBoxes,
     };
   }, [activeBoxId, boxById, boxes, columns, itemMap]);
+  const visibleSwitchBoxes = useMemo(() => {
+    const query = boxListSearchQuery.trim();
+    if (!query) return switchBoxes;
+    return boxes.filter((box) => scoreSearchText(query, box.name, 'title') > 0);
+  }, [boxListSearchQuery, boxes, switchBoxes]);
   const activeBox = useMemo(
     () => boxById.get(activeBoxId) || boxes[0],
     [activeBoxId, boxById, boxes],
@@ -1129,6 +1225,10 @@ export function SortingWorkbench({
     () => [...new Set(visibleColumns.flatMap((column) => visibleColumnItems[column.instanceId || column.id] || []))],
     [visibleColumnItems, visibleColumns],
   );
+  const currentBoxItemIds = useMemo(
+    () => [...new Set(boxColumns.flatMap((column) => columnItems[column.id] || []))],
+    [boxColumns, columnItems],
+  );
   const resolveAbsoluteDestinationIndex = useCallback((
     destinationDroppableId: string,
     visibleIndex: number,
@@ -1146,6 +1246,381 @@ export function SortingWorkbench({
     () => boxItemIds.map((itemId) => itemMap[itemId]).filter((item) => item?.type === 'card').length,
     [boxItemIds, itemMap],
   );
+  const getSearchMatchFromMessage = useCallback((query: string, message: MessageData) => {
+    const blocks = getMessageBlocks(message);
+    let bestScore = 0;
+    let bestBlockId: string | undefined;
+
+    blocks.forEach((block) => {
+      if (block.type === 'quote') return;
+      let rawText = '';
+      let mode: 'content' | 'meta' = 'content';
+      if (block.type === 'text') rawText = block.text || '';
+      if (block.type === 'link') {
+        rawText = getLinkDisplayLabel(block.url || '');
+        mode = 'meta';
+      }
+      if (block.type === 'file') {
+        rawText = block.fileName || block.url || '';
+        mode = 'meta';
+      }
+      if (block.type === 'location') rawText = block.location?.label || block.location?.address || '';
+      const score = scoreSearchText(query, rawText, mode);
+      if (score > bestScore) {
+        bestScore = score;
+        bestBlockId = block.id;
+      }
+    });
+
+    return {
+      score: bestScore,
+      blockId: bestBlockId,
+    };
+  }, []);
+  const filteredDetailBubbles = useMemo(() => {
+    const query = sourceDetailSearchQuery.trim();
+    if (!query) return visibleBubbles;
+    const shouldMatchStreamTitle = visibleSourceStreams.length > 1;
+    return visibleBubbles.filter((entry) => {
+      const messageScore = getSearchMatchFromMessage(query, entry.bubble).score;
+      const streamScore = shouldMatchStreamTitle ? scoreSearchText(query, entry.streamTitle, 'title') : 0;
+      return Math.max(messageScore, streamScore) > 0;
+    });
+  }, [getSearchMatchFromMessage, sourceDetailSearchQuery, visibleBubbles, visibleSourceStreams.length]);
+  const buildSortingMeta = useCallback((boxId?: string | null, layerId?: string | null, columnId?: string | null, time?: number | null) => {
+    const parts = [
+      boxId ? boxById.get(boxId)?.name || null : null,
+      layerId ? layerById.get(layerId)?.name || null : null,
+      columnId ? columnById.get(columnId)?.name || null : null,
+    ].filter((value): value is string => Boolean(value));
+    const path = parts.join(' / ');
+    const timeLabel = time ? formatDateTime(time) : '';
+    return [path, timeLabel].filter(Boolean).join(' · ');
+  }, [boxById, columnById, layerById]);
+  const buildSourceActionTarget = useCallback((entry: SortingSourceBubble): SearchResultTarget => {
+    if (entry.bubble.replyToMessageId) {
+      return {
+        type: 'thread-reply',
+        conversationId: entry.streamId,
+        messageId: entry.bubble.replyToMessageId,
+        blockId: entry.bubble.commentTarget?.blockId,
+        replyMessageId: entry.bubble.id,
+      };
+    }
+    return {
+      type: 'stream-message',
+      conversationId: entry.streamId,
+      messageId: entry.bubble.id,
+    };
+  }, []);
+  const buildCardSearchAuxiliaryAction = useCallback((item: SortingCardView) => {
+    const sourceKey = sourceInfoMap[item.id]?.keys?.[0];
+    if (!sourceKey) return undefined;
+    const sourceBubble = allStreamBubbleMap.get(sourceKey);
+    if (!sourceBubble) return undefined;
+    return {
+      label: '看原泡泡',
+      target: buildSourceActionTarget(sourceBubble),
+    };
+  }, [allStreamBubbleMap, buildSourceActionTarget, sourceInfoMap]);
+  const performSortingSearch = useCallback((request: SearchRequest): SearchResponse => {
+    const query = normalizeSearchQuery(request.query);
+    if (!query) {
+      return { items: [], total: 0, hasMore: false };
+    }
+
+    const results: SearchResult[] = [];
+    const includeSorting = request.scope === 'all' || request.scope === 'sorting';
+    const includeLocalSources = request.mode === 'local-sorting' && request.scope === 'all';
+
+    const pushBoxResult = (box: SortingBoxView, sectionLabel: string) => {
+      const score = scoreSearchText(query, box.name, 'title');
+      if (score <= 0) return;
+      results.push({
+        id: `${sectionLabel}:box:${box.id}`,
+        type: 'sorting-box',
+        domain: 'sorting',
+        sectionLabel,
+        title: box.name,
+        preview: box.description || '打开这个箱子',
+        meta: buildSortingMeta(box.id, null, null),
+        time: 0,
+        score,
+        contextScore: score,
+        target: {
+          type: 'sorting-result',
+          sorting: {
+            type: 'sorting-box',
+            boxId: box.id,
+          },
+        },
+      });
+    };
+
+    const pushLayerResult = (layer: SortingLayerView, sectionLabel: string) => {
+      const score = scoreSearchText(query, layer.name, 'title');
+      if (score <= 0) return;
+      results.push({
+        id: `${sectionLabel}:layer:${layer.id}`,
+        type: 'sorting-layer',
+        domain: 'sorting',
+        sectionLabel,
+        title: layer.name,
+        preview: boxById.get(layer.boxId)?.name || '层',
+        meta: buildSortingMeta(layer.boxId, layer.id, null),
+        time: 0,
+        score,
+        contextScore: score,
+        target: {
+          type: 'sorting-result',
+          sorting: {
+            type: 'sorting-layer',
+            boxId: layer.boxId,
+            layerId: layer.id,
+          },
+        },
+      });
+    };
+
+    const pushColumnResult = (column: SortingColumnView, sectionLabel: string) => {
+      const score = scoreSearchText(query, column.name, 'title');
+      if (score <= 0) return;
+      const firstLayerId = Array.isArray(column.boundLayerIds) ? column.boundLayerIds[0] || null : null;
+      results.push({
+        id: `${sectionLabel}:column:${column.id}`,
+        type: 'sorting-column',
+        domain: 'sorting',
+        sectionLabel,
+        title: column.name,
+        preview: boxById.get(column.boxId || '')?.name || '列',
+        meta: buildSortingMeta(column.boxId, firstLayerId, column.id),
+        time: 0,
+        score,
+        contextScore: score,
+        target: {
+          type: 'sorting-result',
+          sorting: {
+            type: 'sorting-column',
+            boxId: column.boxId || undefined,
+            layerId: firstLayerId || undefined,
+            columnId: column.id,
+          },
+        },
+      });
+    };
+
+    const pushCardResult = (item: SortingCardView, sectionLabel: string) => {
+      if (item.type !== 'card') return;
+      const message = buildSortingBubbleMessage(item);
+      const match = getSearchMatchFromMessage(query, message);
+      if (match.score <= 0) return;
+      results.push({
+        id: `${sectionLabel}:card:${item.id}`,
+        type: 'sorting-card',
+        domain: 'sorting',
+        sectionLabel,
+        title: buildMessagePreviewText(message) || item.title || '泡泡卡片',
+        preview: sourceInfoMap[item.id]?.originText || item.content || '',
+        meta: buildSortingMeta(
+          columnById.get(item.columnId)?.boxId || null,
+          item.layerId,
+          item.columnId,
+          item.updatedAt || item.createdAt || null,
+        ),
+        time: item.updatedAt || item.createdAt || 0,
+        score: match.score,
+        contextScore: match.score,
+        target: {
+          type: 'sorting-result',
+          sorting: {
+            type: 'sorting-card',
+            boxId: columnById.get(item.columnId)?.boxId || undefined,
+            layerId: item.layerId || undefined,
+            columnId: item.columnId,
+            itemId: item.id,
+          },
+        },
+        auxiliaryAction: buildCardSearchAuxiliaryAction(item),
+      });
+    };
+
+    if (includeSorting) {
+      if (request.mode === 'global') {
+        boxes.forEach((box) => pushBoxResult(box, '泡泡箱'));
+        layers.forEach((layer) => pushLayerResult(layer, '泡泡箱'));
+        columns.filter((column) => !column.systemKey).forEach((column) => pushColumnResult(column, '泡泡箱'));
+        Object.values(itemMap).forEach((item) => pushCardResult(item, '泡泡箱'));
+      } else {
+        if (activeBox) {
+          pushBoxResult(activeBox, '泡泡箱');
+        }
+        boxLayers.forEach((layer) => pushLayerResult(layer, '泡泡箱'));
+        boxColumns.forEach((column) => pushColumnResult(column, '泡泡箱'));
+        currentBoxItemIds.forEach((itemId) => {
+          const item = itemMap[itemId];
+          if (item) pushCardResult(item, '泡泡箱');
+        });
+      }
+    }
+
+    if (includeLocalSources) {
+      visibleBubbles.forEach((entry) => {
+        const match = getSearchMatchFromMessage(query, entry.bubble);
+        if (match.score <= 0) return;
+        const parentBubble = entry.bubble.replyToMessageId
+          ? streamsById.get(entry.streamId)?.messages.find((message) => message.id === entry.bubble.replyToMessageId) || null
+          : null;
+        const parentScore = parentBubble ? getSearchMatchFromMessage(query, parentBubble).score : 0;
+        results.push({
+          id: `source:${entry.key}`,
+          type: 'sorting-source',
+          domain: 'sorting',
+          sectionLabel: '来源流',
+          title: buildMessagePreviewText(entry.bubble) || '来源泡泡',
+          preview: entry.bubble.replyToMessageId
+            ? `评论 · ${parentBubble ? buildMessagePreviewText(parentBubble) || '原泡泡' : '原泡泡'}`
+            : entry.streamTitle,
+          meta: `${entry.streamTitle}${entry.bubble.time ? ` · ${formatDateTime(entry.bubble.time)}` : ''}`,
+          time: entry.bubble.time || 0,
+          score: match.score,
+          contextScore: match.score + parentScore,
+          target: {
+            type: 'sorting-source',
+            sorting: {
+              type: 'sorting-source',
+              sourceBubbleKey: entry.key,
+              sourceStreamId: entry.streamId,
+              sourceMessageId: entry.bubble.id,
+            },
+          },
+          auxiliaryAction: {
+            label: '看原泡泡',
+            target: buildSourceActionTarget(entry),
+          },
+        });
+      });
+    }
+
+    results.sort(compareSearchResults);
+    return paginateSearchResults(results, request.offset, request.limit);
+  }, [
+    activeBox,
+    activeBoxId,
+    allStreamBubbleMap,
+    boxById,
+    boxColumns,
+    boxLayers,
+    boxes,
+    buildCardSearchAuxiliaryAction,
+    buildSortingMeta,
+    buildSourceActionTarget,
+    columnById,
+    columns,
+    currentBoxItemIds,
+    getSearchMatchFromMessage,
+    itemMap,
+    layers,
+    sourceInfoMap,
+    streamsById,
+    visibleBubbles,
+  ]);
+  useEffect(() => {
+    if (!onRegisterSearchProvider) return undefined;
+    onRegisterSearchProvider(performSortingSearch);
+    return () => onRegisterSearchProvider(null);
+  }, [onRegisterSearchProvider, performSortingSearch]);
+
+  useEffect(() => {
+    setBoxListSearchQuery('');
+    setSourceListSearchQuery('');
+    setSourceDetailSearchQuery('');
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setSourceDetailSearchQuery('');
+  }, [currentSourceId, isSourceListView, selectedSourceIds, sourceViewMode]);
+
+  useEffect(() => {
+    setLocalSearchSelectedIndex((current) => (
+      localSearchResults.length === 0
+        ? 0
+        : Math.min(current, localSearchResults.length - 1)
+    ));
+  }, [localSearchResults]);
+
+  useEffect(() => {
+    if (!isLocalSearchOpen || !localSearchQuery.trim()) {
+      setLocalSearchResults([]);
+      setLocalSearchTotal(0);
+      setLocalSearchHasMore(false);
+      setLocalSearchSelectedIndex(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      const nextPage = performSortingSearch({
+        query: localSearchQuery,
+        scope: 'all',
+        mode: 'local-sorting',
+        offset: 0,
+        limit: 20,
+      });
+      setLocalSearchResults(nextPage.items);
+      setLocalSearchTotal(nextPage.total);
+      setLocalSearchHasMore(nextPage.hasMore);
+      setLocalSearchSelectedIndex(0);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [isLocalSearchOpen, localSearchQuery, performSortingSearch]);
+
+  useEffect(() => {
+    setIsLocalSearchOpen(false);
+    setLocalSearchQuery('');
+    setLocalSearchResults([]);
+    setLocalSearchTotal(0);
+    setLocalSearchHasMore(false);
+    setLocalSearchSelectedIndex(0);
+  }, [activeBoxId, currentSourceId, sourceViewMode]);
+
+  useEffect(() => {
+    setDetailSearchSelectedIndex((current) => (
+      detailSearchResults.length === 0
+        ? 0
+        : Math.min(current, detailSearchResults.length - 1)
+    ));
+  }, [detailSearchResults]);
+
+  useEffect(() => {
+    if (!isDetailSearchOpen || !detailSearchQuery.trim()) {
+      setDetailSearchResults([]);
+      setDetailSearchTotal(0);
+      setDetailSearchHasMore(false);
+      setDetailSearchSelectedIndex(0);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => {
+      const nextPage = performSortingSearch({
+        query: detailSearchQuery,
+        scope: 'all',
+        mode: 'local-sorting',
+        offset: 0,
+        limit: 20,
+      });
+      setDetailSearchResults(nextPage.items);
+      setDetailSearchTotal(nextPage.total);
+      setDetailSearchHasMore(nextPage.hasMore);
+      setDetailSearchSelectedIndex(0);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [detailSearchQuery, isDetailSearchOpen, performSortingSearch]);
+
+  useEffect(() => {
+    setIsDetailSearchOpen(false);
+    setDetailSearchQuery('');
+    setDetailSearchResults([]);
+    setDetailSearchTotal(0);
+    setDetailSearchHasMore(false);
+    setDetailSearchSelectedIndex(0);
+  }, [activeBoxId, bubbleDetail, currentSourceId, sourceViewMode]);
   const activeDetailCard = useMemo(() => (
     bubbleDetail?.kind === 'card'
       ? itemMap[bubbleDetail.key] || null
@@ -1242,6 +1717,8 @@ export function SortingWorkbench({
   }, [cardCommentPicker, itemMap, sourceInfoMap]);
 
   const closeBubbleDetail = useCallback(() => {
+    setIsDetailSearchOpen(false);
+    setDetailSearchQuery('');
     if (bubbleDetail?.kind === 'card' && bubbleDetail.mode === 'edit') {
       void (async () => {
         if (!editingBubbleId) {
@@ -2243,6 +2720,266 @@ export function SortingWorkbench({
     luggagePane.resizeBy(-delta);
   }, [isLuggageCollapsed, luggagePane]);
 
+  const scrollToSearchSelector = useCallback((selector: string) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) return;
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }, []);
+
+  const locateSortingSearchTarget = useCallback((payload: SortingSearchLocatorPayload) => {
+    setPendingSearchLocateTarget(payload);
+  }, []);
+
+  useEffect(() => {
+    if (!onRegisterSearchLocator) return undefined;
+    onRegisterSearchLocator(locateSortingSearchTarget);
+    return () => onRegisterSearchLocator(null);
+  }, [locateSortingSearchTarget, onRegisterSearchLocator]);
+
+  useEffect(() => {
+    const target = pendingSearchLocateTarget;
+    if (!target) return;
+
+    if (target.type === 'sorting-source' && target.sourceStreamId && target.sourceMessageId) {
+      void locateSourceBubble({
+        conversationId: target.sourceStreamId,
+        messageId: target.sourceMessageId,
+      });
+      setPendingSearchLocateTarget(null);
+      return;
+    }
+
+    if (target.boxId && activeBoxId !== target.boxId) {
+      setIsSidebarCollapsed(false);
+      setIsSidebarLayersCollapsed(false);
+      handleSelectBox(target.boxId);
+      return;
+    }
+
+    if (target.layerId && effectiveCurrentLayerId !== target.layerId) {
+      setIsSidebarCollapsed(false);
+      setIsSidebarLayersCollapsed(false);
+      handleFocusLayer(target.layerId);
+      return;
+    }
+
+    if (target.type === 'sorting-box' && target.boxId) {
+      highlightSearchTarget('box', target.boxId);
+      scrollToSearchSelector(`[data-sorting-box-id="${target.boxId}"], [data-sorting-active-box-id="${target.boxId}"]`);
+      setPendingSearchLocateTarget(null);
+      return;
+    }
+
+    if (target.type === 'sorting-layer' && target.layerId) {
+      highlightSearchTarget('layer', target.layerId);
+      scrollToSearchSelector(`[data-sorting-layer-id="${target.layerId}"]`);
+      setPendingSearchLocateTarget(null);
+      return;
+    }
+
+    if (target.type === 'sorting-column' && target.columnId) {
+      highlightSearchTarget('column', target.columnId);
+      scrollToSearchSelector(`[data-sorting-column-id="${target.columnId}"]`);
+      setPendingSearchLocateTarget(null);
+      return;
+    }
+
+    if (target.type === 'sorting-card' && target.itemId) {
+      highlightSearchTarget('item', target.itemId);
+      scrollToSearchSelector(`[data-sorting-bubble-id="${target.itemId}"]`);
+      setPendingSearchLocateTarget(null);
+    }
+  }, [
+    activeBoxId,
+    effectiveCurrentLayerId,
+    handleFocusLayer,
+    handleSelectBox,
+    highlightSearchTarget,
+    locateSourceBubble,
+    pendingSearchLocateTarget,
+    scrollToSearchSelector,
+  ]);
+
+  const toggleLocalSearch = useCallback(() => {
+    setIsLocalSearchOpen((current) => {
+      const next = !current;
+      if (!next) {
+        setLocalSearchQuery('');
+      } else {
+        window.setTimeout(() => localSearchInputRef.current?.focus(), 30);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectLocalSearchResult = useCallback((result: SearchResult) => {
+    const sortingTarget = result.target.sorting;
+    if (!sortingTarget) return;
+    locateSortingSearchTarget(sortingTarget);
+    setIsLocalSearchOpen(false);
+    setLocalSearchQuery('');
+  }, [locateSortingSearchTarget]);
+
+  const handleRunLocalSearchAuxiliaryAction = useCallback((result: SearchResult) => {
+    if (!result.auxiliaryAction || !onRevealSearchTarget) return;
+    onRevealSearchTarget(result.auxiliaryAction.target);
+    setIsLocalSearchOpen(false);
+    setLocalSearchQuery('');
+  }, [onRevealSearchTarget]);
+
+  const handleLoadMoreLocalSearch = useCallback(() => {
+    const nextPage = performSortingSearch({
+      query: localSearchQuery,
+      scope: 'all',
+      mode: 'local-sorting',
+      offset: localSearchResults.length,
+      limit: 20,
+    });
+    setLocalSearchResults((current) => [...current, ...nextPage.items]);
+    setLocalSearchTotal(nextPage.total);
+    setLocalSearchHasMore(nextPage.hasMore);
+  }, [localSearchQuery, localSearchResults.length, performSortingSearch]);
+
+  const handleLocalSearchInputKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setLocalSearchSelectedIndex((current) => Math.min(current + 1, Math.max(0, localSearchResults.length - 1)));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setLocalSearchSelectedIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const target = localSearchResults[localSearchSelectedIndex];
+      if (target) {
+        handleSelectLocalSearchResult(target);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setIsLocalSearchOpen(false);
+      setLocalSearchQuery('');
+    }
+  }, [handleSelectLocalSearchResult, localSearchResults, localSearchSelectedIndex]);
+
+  const localSearchResultsView = useMemo(() => (
+    <SearchResultPanel
+      compact
+      results={localSearchResults}
+      selectedIndex={localSearchSelectedIndex}
+      hasMore={localSearchHasMore}
+      total={localSearchTotal}
+      emptyText="当前分箱页没有找到结果"
+      onSelect={handleSelectLocalSearchResult}
+      onSelectIndex={setLocalSearchSelectedIndex}
+      onLoadMore={handleLoadMoreLocalSearch}
+      onRunAuxiliaryAction={handleRunLocalSearchAuxiliaryAction}
+    />
+  ), [
+    handleLoadMoreLocalSearch,
+    handleRunLocalSearchAuxiliaryAction,
+    handleSelectLocalSearchResult,
+    localSearchHasMore,
+    localSearchResults,
+    localSearchSelectedIndex,
+    localSearchTotal,
+  ]);
+
+  const toggleDetailSearch = useCallback(() => {
+    setIsDetailSearchOpen((current) => {
+      const next = !current;
+      if (!next) {
+        setDetailSearchQuery('');
+      } else {
+        window.setTimeout(() => detailSearchInputRef.current?.focus(), 30);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectDetailSearchResult = useCallback((result: SearchResult) => {
+    const sortingTarget = result.target.sorting;
+    if (!sortingTarget) return;
+    closeBubbleDetail();
+    locateSortingSearchTarget(sortingTarget);
+  }, [closeBubbleDetail, locateSortingSearchTarget]);
+
+  const handleRunDetailSearchAuxiliaryAction = useCallback((result: SearchResult) => {
+    if (!result.auxiliaryAction || !onRevealSearchTarget) return;
+    closeBubbleDetail();
+    onRevealSearchTarget(result.auxiliaryAction.target);
+  }, [closeBubbleDetail, onRevealSearchTarget]);
+
+  const handleLoadMoreDetailSearch = useCallback(() => {
+    const nextPage = performSortingSearch({
+      query: detailSearchQuery,
+      scope: 'all',
+      mode: 'local-sorting',
+      offset: detailSearchResults.length,
+      limit: 20,
+    });
+    setDetailSearchResults((current) => [...current, ...nextPage.items]);
+    setDetailSearchTotal(nextPage.total);
+    setDetailSearchHasMore(nextPage.hasMore);
+  }, [detailSearchQuery, detailSearchResults.length, performSortingSearch]);
+
+  const handleDetailSearchInputKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setDetailSearchSelectedIndex((current) => Math.min(current + 1, Math.max(0, detailSearchResults.length - 1)));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setDetailSearchSelectedIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const target = detailSearchResults[detailSearchSelectedIndex];
+      if (target) {
+        handleSelectDetailSearchResult(target);
+      }
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setIsDetailSearchOpen(false);
+      setDetailSearchQuery('');
+    }
+  }, [detailSearchResults, detailSearchSelectedIndex, handleSelectDetailSearchResult]);
+
+  const detailSearchResultsView = useMemo(() => (
+    <SearchResultPanel
+      compact
+      results={detailSearchResults}
+      selectedIndex={detailSearchSelectedIndex}
+      hasMore={detailSearchHasMore}
+      total={detailSearchTotal}
+      emptyText="当前分箱页没有找到结果"
+      onSelect={handleSelectDetailSearchResult}
+      onSelectIndex={setDetailSearchSelectedIndex}
+      onLoadMore={handleLoadMoreDetailSearch}
+      onRunAuxiliaryAction={handleRunDetailSearchAuxiliaryAction}
+    />
+  ), [
+    detailSearchHasMore,
+    detailSearchResults,
+    detailSearchSelectedIndex,
+    detailSearchTotal,
+    handleLoadMoreDetailSearch,
+    handleRunDetailSearchAuxiliaryAction,
+    handleSelectDetailSearchResult,
+  ]);
+
   const handlePanePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -2270,7 +3007,7 @@ export function SortingWorkbench({
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.code !== 'Space' && event.key !== ' ') return;
       if (bubbleDetail || cardCommentPicker || bubbleMenu.show || nodeMenu.show || columnMenu.show || layerMenu.show || boxMenu.show) return;
       const activeElement = document.activeElement;
@@ -2547,10 +3284,11 @@ export function SortingWorkbench({
     return (
       <>
         <SortingSidebar
-          switchBoxes={switchBoxes}
+          switchBoxes={visibleSwitchBoxes}
           currentLayers={boxLayers}
           showSourcesSection={false}
           streams={streams}
+          boxSearchQuery={boxListSearchQuery}
           activeBoxId={activeBoxId}
           currentBox={activeBox}
           breadcrumbBoxes={breadcrumbBoxes}
@@ -2589,6 +3327,7 @@ export function SortingWorkbench({
           onCancelRenameLayer={handleCancelRenameLayer}
           onOpenBoxMenu={openBoxMenu}
           onOpenLayerMenu={openLayerMenu}
+          onBoxSearchQueryChange={setBoxListSearchQuery}
           onFocusLayer={handleFocusLayer}
           onToggleLayer={handleToggleLayer}
           onToggleSource={handleToggleSourceSelection}
@@ -2597,6 +3336,8 @@ export function SortingWorkbench({
           onToggleLayersCollapse={handleToggleSidebarLayers}
           onToggleSourcesCollapse={handleToggleSidebarSources}
           onSectionLayoutChange={commitSidebarSectionLayoutChange}
+          highlightedBoxId={highlightedSearchBoxId}
+          highlightedLayerId={highlightedSearchLayerId}
         />
         <ResizeHandle className="pane-resize-handle sorting-pane__handle desktop-only" onDrag={resizeSidebarPane} ariaLabel="调整分箱左侧栏宽度" limit={sidebarPane.limit} />
       </>
@@ -2605,7 +3346,9 @@ export function SortingWorkbench({
     activeBox,
     activeBoxId,
     addingLayer,
+    boxListSearchQuery,
     boxLayers,
+    boxes,
     breadcrumbBoxes,
     bridge,
     commitSidebarSectionLayoutChange,
@@ -2638,6 +3381,8 @@ export function SortingWorkbench({
     handleToggleSidebarLayers,
     handleToggleSidebarSources,
     handleToggleSourceSelection,
+    highlightedSearchBoxId,
+    highlightedSearchLayerId,
     homeBoxId,
     isSidebarCollapsed,
     isSidebarLayersCollapsed,
@@ -2654,7 +3399,7 @@ export function SortingWorkbench({
     sidebarPane.limit,
     sidebarSectionLayout,
     streams,
-    switchBoxes,
+    visibleSwitchBoxes,
     workspace,
   ]);
   const boardPaneContent = useMemo(() => {
@@ -2676,6 +3421,15 @@ export function SortingWorkbench({
         sourceInfoMap={sourceInfoMap}
         bubbleCount={bubbleCount}
         currentLayerName={currentBoardLayerName}
+        localSearchQuery={localSearchQuery}
+        localSearchOpen={isLocalSearchOpen}
+        localSearchInputRef={localSearchInputRef}
+        localSearchPanelOpen={isLocalSearchOpen && Boolean(localSearchQuery.trim())}
+        localSearchResultsView={localSearchResultsView}
+        highlightedBoxId={highlightedSearchBoxId}
+        highlightedLayerId={highlightedSearchLayerId}
+        highlightedColumnId={highlightedSearchColumnId}
+        highlightedItemId={highlightedSearchItemId}
         expandedBubbleIds={expandedBubbleIds}
         editingBubbleId={editingBubbleId}
         editingBubbleDraft={editingBubbleDraft}
@@ -2696,6 +3450,11 @@ export function SortingWorkbench({
         onOpenHome={handleOpenRootBox}
         onOpenParent={handleOpenParentBox}
         onOpenBoxSettings={handleOpenBoxSettings}
+        onToggleLocalSearch={toggleLocalSearch}
+        onLocalSearchQueryChange={setLocalSearchQuery}
+        onLocalSearchFocus={() => undefined}
+        onLocalSearchKeyDown={handleLocalSearchInputKeyDown}
+        onClearLocalSearch={() => setLocalSearchQuery('')}
         onStartEditBubble={startEditingBubble}
         onBubbleDraftChange={handleBoardBubbleDraftChange}
         onToggleExpandedBubble={toggleExpandedBubble}
@@ -2736,7 +3495,9 @@ export function SortingWorkbench({
     handleSelectBox,
     handleStartRenameColumn,
     handleToggleAddColumn,
+    toggleLocalSearch,
     homeBoxId,
+    isLocalSearchOpen,
     itemMap,
     newColName,
     newColRef,
@@ -2747,6 +3508,14 @@ export function SortingWorkbench({
     sourceInfoMap,
     startEditingBubble,
     toggleExpandedBubble,
+    localSearchInputRef,
+    localSearchQuery,
+    localSearchResultsView,
+    handleLocalSearchInputKeyDown,
+    highlightedSearchBoxId,
+    highlightedSearchColumnId,
+    highlightedSearchItemId,
+    highlightedSearchLayerId,
     visibleColumnItems,
     visibleColumns,
     workspace,
@@ -2832,12 +3601,15 @@ export function SortingWorkbench({
             streams={streams}
             selectedStreamIds={selectedSourceIds}
             currentStream={focusedStream}
-            bubbles={visibleBubbles}
+            bubbles={filteredDetailBubbles}
             foldedBubbles={foldedBubbles}
             highlightedBubbleKey={highlightedSourceBubbleKey}
             isCollapsed={isSourceCollapsed}
             isListView={isSourceListView}
             sourceViewMode={sourceViewMode}
+            visibleStreamIds={visibleSourceListStreamIds}
+            streamListSearchQuery={sourceListSearchQuery}
+            detailBubbleSearchQuery={sourceDetailSearchQuery}
             composerDraft={currentSourceDraft}
             composerPlaceholder={sourceComposerPlaceholder}
             composerDisabled={!currentSourceId || isSendingSourceMessage || isPreparingSourceDraft}
@@ -2854,6 +3626,8 @@ export function SortingWorkbench({
             onFocusStream={handleFocusSource}
             onOpenStream={handleOpenSource}
             onOpenSelectedStreams={handleOpenSelectedSources}
+            onStreamListSearchQueryChange={setSourceListSearchQuery}
+            onDetailBubbleSearchQueryChange={setSourceDetailSearchQuery}
             onClearSelection={handleClearSourceSelection}
             onBackToList={handleSourceBackToList}
             onToggleCollapse={handleToggleSourcePaneCollapse}
@@ -3101,8 +3875,18 @@ export function SortingWorkbench({
             sourceLabel={activeDetailSourceLabel}
             editable={bubbleDetail.kind === 'card'}
             draft={bubbleDetail.kind === 'card' && bubbleDetail.mode === 'edit' ? editingBubbleDraft : null}
+            searchQuery={detailSearchQuery}
+            searchOpen={isDetailSearchOpen}
+            searchPanelOpen={isDetailSearchOpen && Boolean(detailSearchQuery.trim())}
+            searchInputRef={detailSearchInputRef}
+            searchResultsView={detailSearchResultsView}
             onClose={closeBubbleDetail}
             onRequestEdit={bubbleDetail.kind === 'card' && activeDetailCard ? () => startEditingBubble(activeDetailCard) : undefined}
+            onToggleSearch={toggleDetailSearch}
+            onSearchQueryChange={setDetailSearchQuery}
+            onSearchInputFocus={() => undefined}
+            onSearchInputKeyDown={handleDetailSearchInputKeyDown}
+            onClearSearch={() => setDetailSearchQuery('')}
             onError={showToast}
             onSave={(nextDraft) => { void saveEditingBubble(nextDraft); }}
           />

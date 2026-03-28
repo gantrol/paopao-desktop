@@ -65,6 +65,7 @@ const SortingBubbleNodeInner = ({
   boxes,
   sourceInfo,
   isDragging,
+  isHighlighted = false,
   isDimmed = false,
   useInitialBoxAvatar = false,
   isEditing,
@@ -80,6 +81,7 @@ const SortingBubbleNodeInner = ({
   boxes: SortingBoxView[];
   sourceInfo?: SortingBubbleSourceInfo | null;
   isDragging: boolean;
+  isHighlighted?: boolean;
   isDimmed?: boolean;
   useInitialBoxAvatar?: boolean;
   enableOverflowCollapse?: boolean;
@@ -105,9 +107,10 @@ const SortingBubbleNodeInner = ({
     const boxBadgeLabel = isSortingBoxShortcut(item) ? '快捷方式' : '箱子';
     return (
       <div
-        className={cx('s-node-card is-box', isDragging && 'is-dragging', isDimmed && 'is-dimmed')}
+        className={cx('s-node-card is-box', isDragging && 'is-dragging', isDimmed && 'is-dimmed', isHighlighted && 'is-highlighted')}
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
+        data-sorting-bubble-id={item.id}
       >
         <div className="s-node-card-head">
           <span className="s-node-card-badge is-muted">{boxBadgeLabel}</span>
@@ -137,7 +140,7 @@ const SortingBubbleNodeInner = ({
 
   return (
     <div
-      className={cx('s-sorting-bubble-entry', 's-node-card', isDragging && 'is-dragging', isDimmed && 'is-dimmed')}
+      className={cx('s-sorting-bubble-entry', 's-node-card', isDragging && 'is-dragging', isDimmed && 'is-dimmed', isHighlighted && 'is-highlighted')}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       data-sorting-bubble-id={item.id}
