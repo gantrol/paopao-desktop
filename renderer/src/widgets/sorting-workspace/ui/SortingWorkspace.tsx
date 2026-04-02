@@ -54,6 +54,7 @@ import {
   buildBubbleDraft,
   buildBubbleMessagePayload,
   buildBubbleContentSummary,
+  buildSelectedLayersCopyText,
   buildMessagePreviewText,
   buildSortingBubbleMessage,
   formatDateTime,
@@ -1182,12 +1183,37 @@ export function SortingWorkbench({
       ? boxLayers.filter((layer) => activeSelection.has(layer.id))
       : boxLayers;
   }, [boxLayers, selectedLayerIds]);
+  const selectedCopyLayers = useMemo(() => {
+    const activeSelection = new Set(
+      selectedLayerIds.filter((layerId) => boxLayers.some((layer) => layer.id === layerId)),
+    );
+    return boxLayers.filter((layer) => activeSelection.has(layer.id));
+  }, [boxLayers, selectedLayerIds]);
   const effectiveCurrentLayerId = useMemo(() => {
     if (!currentLayerId) return null;
     return selectedBoxLayers.some((layer) => layer.id === currentLayerId)
       ? currentLayerId
       : null;
   }, [currentLayerId, selectedBoxLayers]);
+  const selectedLayersCopyText = useMemo(() => {
+    if (!activeBox || selectedCopyLayers.length === 0) return '';
+    return buildSelectedLayersCopyText({
+      box: activeBox,
+      selectedLayers: selectedCopyLayers,
+      columns: boxColumns,
+      columnItems,
+      itemMap,
+      sourceInfoMap,
+    });
+  }, [
+    activeBox,
+    boxColumns,
+    columnItems,
+    itemMap,
+    selectedCopyLayers,
+    sourceInfoMap,
+  ]);
+  const copySelectedLayersDisabled = !selectedLayersCopyText.trim();
   const visibleColumns = useMemo(() => {
     if (selectedBoxLayers.length === 0) return boxColumns;
     const selectedLayerIdSet = new Set(selectedBoxLayers.map((layer) => layer.id));
@@ -1817,16 +1843,40 @@ export function SortingWorkbench({
     showToast('泡泡已更新');
   }, [editingBubbleDraft, editingBubbleId, itemMap, showToast, updateWorkspace]);
 
-  const copyBubbleContent = useCallback(async (bubbleKey: string) => {
-    const bubble = bubbleMap.get(bubbleKey)?.bubble;
-    if (!bubble) return;
+  const copyTextToClipboard = useCallback(async (
+    text: string,
+    successMessage: string,
+    emptyMessage: string,
+  ) => {
+    if (!text.trim()) {
+      showToast(emptyMessage);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(extractText(bubble.content));
-      showToast('已复制泡泡内容');
+      await navigator.clipboard.writeText(text);
+      showToast(successMessage);
     } catch {
       showToast('当前环境不支持复制');
     }
-  }, [bubbleMap, showToast]);
+  }, [showToast]);
+
+  const copyBubbleContent = useCallback(async (bubbleKey: string) => {
+    const bubble = bubbleMap.get(bubbleKey)?.bubble;
+    if (!bubble) return;
+    await copyTextToClipboard(
+      extractText(bubble.content),
+      '已复制泡泡内容',
+      '当前泡泡没有可复制内容',
+    );
+  }, [bubbleMap, copyTextToClipboard]);
+
+  const handleCopySelectedLayers = useCallback(async () => {
+    await copyTextToClipboard(
+      selectedLayersCopyText,
+      '已复制已选层卡片',
+      '已选层没有可复制的卡片',
+    );
+  }, [copyTextToClipboard, selectedLayersCopyText]);
 
   const resolveProjectionDestination = useCallback(async (destinationColumnId: string) => {
     if (destinationColumnId === luggageColumnId) {
@@ -3450,6 +3500,7 @@ export function SortingWorkbench({
         onOpenHome={handleOpenRootBox}
         onOpenParent={handleOpenParentBox}
         onOpenBoxSettings={handleOpenBoxSettings}
+        onCopySelectedLayers={() => { void handleCopySelectedLayers(); }}
         onToggleLocalSearch={toggleLocalSearch}
         onLocalSearchQueryChange={setLocalSearchQuery}
         onLocalSearchFocus={() => undefined}
@@ -3463,6 +3514,7 @@ export function SortingWorkbench({
         onAddBlankBubble={handleBoardAddBlankBubble}
         onToggleAddColumn={handleToggleAddColumn}
         onAddColumn={handleAddColumn}
+        copySelectedLayersDisabled={copySelectedLayersDisabled}
       />
     );
   }, [
@@ -3490,6 +3542,7 @@ export function SortingWorkbench({
     handleOpenRootBox,
     handleOpenCardCommentPicker,
     handleOpenBoxSettings,
+    handleCopySelectedLayers,
     handleRenameColumn,
     handleSaveEditingBubbleAction,
     handleSelectBox,
@@ -3519,6 +3572,7 @@ export function SortingWorkbench({
     visibleColumnItems,
     visibleColumns,
     workspace,
+    copySelectedLayersDisabled,
   ]);
   const luggagePaneContent = useMemo(() => {
     if (!workspace || !activeBox || !bridge) return null;

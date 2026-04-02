@@ -4,6 +4,7 @@ import {
   createMediaBubbleBlock,
   createTextBubbleBlock,
   deriveLegacyShapeFromBlocks,
+  getBubbleBlockPreviewText,
   getMessageBlocks as getSharedMessageBlocks,
   normalizeBubbleBlocks,
   type BubbleBlock,
@@ -16,10 +17,12 @@ import {
 import { formatTime } from '@/shared/lib/time';
 import { getLinkDisplayLabel } from '@/shared/lib/link';
 import type {
+  SortingBoxView,
   SortingCanvasEdgeView,
   SortingCanvasNodeView,
   SortingCardView,
   SortingColumnView,
+  SortingLayerView,
   SortingStream,
 } from './core';
 import {
@@ -410,6 +413,175 @@ export function buildBubbleMessagePayload(item: SortingCardView) {
     role: 'me',
     time: item.updatedAt || item.createdAt || Date.now(),
   });
+}
+
+function getSortingColumnBoundLayerIds(column: SortingColumnView) {
+  const legacyColumn = column as SortingColumnView & {
+    layerId?: string | null;
+    layerIds?: string[];
+  };
+  if (Array.isArray(column.boundLayerIds)) {
+    return column.boundLayerIds
+      .filter((layerId): layerId is string => typeof layerId === 'string' && Boolean(layerId.trim()))
+      .map((layerId) => layerId.trim());
+  }
+  if (Array.isArray(legacyColumn.layerIds)) {
+    return legacyColumn.layerIds
+      .filter((layerId): layerId is string => typeof layerId === 'string' && Boolean(layerId.trim()))
+      .map((layerId) => layerId.trim());
+  }
+  if (typeof legacyColumn.layerId === 'string' && legacyColumn.layerId.trim()) {
+    return [legacyColumn.layerId.trim()];
+  }
+  return [];
+}
+
+function resolveSortingCardLayerId(
+  item: SortingCardView,
+  columnLayerIds: string[],
+) {
+  if (item.layerId) return item.layerId;
+  return columnLayerIds.length === 1 ? columnLayerIds[0] : null;
+}
+
+function getMaxBacktickRun(text: string) {
+  let maxRun = 0;
+  for (const match of text.matchAll(/`+/g)) {
+    maxRun = Math.max(maxRun, match[0]?.length || 0);
+  }
+  return maxRun;
+}
+
+function wrapMarkdownFence(text: string) {
+  const fence = '`'.repeat(Math.max(3, getMaxBacktickRun(text) + 1));
+  return `${fence}markdown\n${text}\n${fence}`;
+}
+
+function buildLocationCopyText(block: SortingBubbleBlock) {
+  const location = block.location;
+  if (!location) return '[位置]';
+  const parts: string[] = [];
+  const label = typeof location.label === 'string' ? location.label.trim() : '';
+  const address = typeof location.address === 'string' ? location.address.trim() : '';
+  if (label) parts.push(label);
+  if (address && address !== label) parts.push(address);
+  if (Number.isFinite(location.latitude) && Number.isFinite(location.longitude)) {
+    parts.push(`${location.latitude}, ${location.longitude}`);
+  }
+  return parts.length > 0 ? `[位置] ${parts.join(' - ')}` : '[位置]';
+}
+
+function serializeSortingBlockForLlm(block: SortingBubbleBlock) {
+  if (block.type === 'text') {
+    return typeof block.text === 'string' ? block.text : '';
+  }
+  if (block.type === 'image') {
+    return block.url ? `[图片] ${block.url}` : '[图片]';
+  }
+  if (block.type === 'video') {
+    return block.url ? `[视频] ${block.url}` : '[视频]';
+  }
+  if (block.type === 'audio') {
+    return block.url ? `[音频] ${block.url}` : '[音频]';
+  }
+  if (block.type === 'file') {
+    const label = block.fileName || block.url || '';
+    return label ? `[文件] ${label}` : '[文件]';
+  }
+  if (block.type === 'link') {
+    const url = typeof block.url === 'string' ? block.url.trim() : '';
+    const label = url ? getLinkDisplayLabel(url) : '';
+    if (label && url && label !== url) {
+      return `[链接] ${label} - ${url}`;
+    }
+    if (label) return `[链接] ${label}`;
+    return url ? `[链接] ${url}` : '[链接]';
+  }
+  if (block.type === 'location') {
+    return buildLocationCopyText(block);
+  }
+  if (block.type === 'quote') {
+    return getBubbleBlockPreviewText(block)
+      || (block.quote?.relationKind === 'forward' ? '[转发]' : '[引用]');
+  }
+  return '';
+}
+
+export function serializeSortingCardForLlm(
+  item: SortingCardView,
+  sourceInfo?: SortingBubbleSourceInfo | null,
+) {
+  const blocks = getMessageBlocks(buildSortingBubbleMessage(item));
+  const body = blocks
+    .map((block) => serializeSortingBlockForLlm(block))
+    .filter((part) => part.length > 0)
+    .join('\n\n');
+
+  return {
+    sourceLabel: sourceInfo?.originText || '手动',
+    body,
+    fencedBody: wrapMarkdownFence(body),
+  };
+}
+
+export function buildSelectedLayersCopyText({
+  box,
+  selectedLayers,
+  columns,
+  columnItems,
+  itemMap,
+  sourceInfoMap,
+}: {
+  box: SortingBoxView;
+  selectedLayers: SortingLayerView[];
+  columns: SortingColumnView[];
+  columnItems: Record<string, string[]>;
+  itemMap: Record<string, SortingCardView>;
+  sourceInfoMap: Record<string, SortingBubbleSourceInfo>;
+}) {
+  const sections = [`# ${box.name || '未命名箱子'}`];
+  let hasAnyCard = false;
+
+  selectedLayers.forEach((layer) => {
+    const layerSections: string[] = [];
+
+    columns.forEach((column) => {
+      const columnLayerIds = getSortingColumnBoundLayerIds(column);
+      if (!columnLayerIds.includes(layer.id)) return;
+
+      const cards = (columnItems[column.id] || [])
+        .map((itemId) => itemMap[itemId])
+        .filter((item): item is SortingCardView => Boolean(item))
+        .filter((item) => item.type === 'card')
+        .filter((item) => resolveSortingCardLayerId(item, columnLayerIds) === layer.id);
+
+      if (cards.length === 0) return;
+
+      hasAnyCard = true;
+      const columnSections = [
+        `### 列：${normalizeSortingColumnName(column.id, column.name) || '未命名列'}`,
+      ];
+
+      cards.forEach((item, index) => {
+        const serialized = serializeSortingCardForLlm(item, sourceInfoMap[item.id] || null);
+        columnSections.push(
+          `#### 卡片 ${index + 1}`,
+          `来源：${serialized.sourceLabel}`,
+          serialized.fencedBody,
+        );
+      });
+
+      layerSections.push(columnSections.join('\n\n'));
+    });
+
+    if (layerSections.length > 0) {
+      sections.push(
+        [`## 层：${layer.name}`, ...layerSections].join('\n\n'),
+      );
+    }
+  });
+
+  return hasAnyCard ? sections.join('\n\n') : '';
 }
 
 

@@ -9,7 +9,7 @@ import type {
   SortingLayerView,
   SortingScopedBotBindingView,
 } from '@/entities/sorting';
-import { BoxIcon } from '../icons';
+import { BoxIcon, CopyIcon } from '../icons';
 import type { SortingBubbleDraft, SortingBubbleSourceInfo } from '../types';
 import { SortingKanbanView } from './kanban-view';
 
@@ -58,6 +58,7 @@ export function SortingBoard({
   onOpenHome,
   onOpenParent,
   onOpenBoxSettings,
+  onCopySelectedLayers,
   onToggleLocalSearch,
   onLocalSearchQueryChange,
   onLocalSearchFocus,
@@ -71,6 +72,7 @@ export function SortingBoard({
   onAddBlankBubble,
   onToggleAddColumn,
   onAddColumn,
+  copySelectedLayersDisabled,
 }: {
   activeBox: SortingBoxView;
   bots: BotRecord[];
@@ -116,6 +118,7 @@ export function SortingBoard({
   onOpenHome: () => void;
   onOpenParent: () => void;
   onOpenBoxSettings: (botId?: string) => void;
+  onCopySelectedLayers: () => void;
   onToggleLocalSearch: () => void;
   onLocalSearchQueryChange: (value: string) => void;
   onLocalSearchFocus: () => void;
@@ -129,6 +132,7 @@ export function SortingBoard({
   onAddBlankBubble: (columnId: string) => void;
   onToggleAddColumn: (open: boolean) => void;
   onAddColumn: (value: string) => void | Promise<void>;
+  copySelectedLayersDisabled: boolean;
 }) {
   const boxItems = boxItemIds.map((itemId) => itemMap[itemId]).filter(Boolean);
   const highlightedBots = bots.filter((bot) => boxBotBindings[bot.id]?.enabled);
@@ -183,6 +187,16 @@ export function SortingBoard({
             onInputKeyDown={onLocalSearchKeyDown}
             onClear={onClearLocalSearch}
           />
+          <button
+            type="button"
+            className="s-toolbar-action inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onCopySelectedLayers}
+            disabled={copySelectedLayersDisabled}
+            title={copySelectedLayersDisabled ? '已选层没有可复制的卡片' : '复制已选层'}
+          >
+            <CopyIcon size={14} />
+            <span>复制已选层</span>
+          </button>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {highlightedBots.slice(0, 4).map((bot) => (
               <button
